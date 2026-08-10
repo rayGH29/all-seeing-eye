@@ -1,0 +1,26 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.pytest_cache/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Local configuration & secrets (never commit these)
+config.yaml
+.env
+
+# Generated OSINT reports
+reports/*
+!reports/.gitkeep
+
+# Editor / OS cruft
+.vscode/
+.idea/
+.DS_Store
