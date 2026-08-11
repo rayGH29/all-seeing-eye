@@ -12,10 +12,21 @@ settings.
 > people's privacy.
 
 This repository contains the **skeleton**: the framework, CLI, config,
-orchestration pipeline, report layer, and LLM abstraction, plus working
-plugins: an **example** reference plugin, a **Sherlock** username hunter, and a
-**Have I Been Pwned** email breach check. Further integrations are dropped into
-`plugins/` without touching the core.
+orchestration pipeline, report layer, and LLM abstraction, plus a set of working
+plugins. Further integrations are dropped into `plugins/` without touching the
+core.
+
+**Bundled plugins**
+
+| Plugin | Target | Needs a key? | Enable with |
+|---|---|---|---|
+| `example` | username, email | no | built in |
+| `sherlock` | username | no | `pip install sherlock-project` |
+| `maigret` | username | no | `pip install maigret` |
+| `socialscan` | username, email | no | `pip install socialscan` |
+| `holehe` | email | no | `pip install holehe` |
+| `gravatar` | email | no | built in (HTTP only) |
+| `hibp` | email | **yes** (`HIBP_API_KEY`) | built in |
 
 ## Architecture
 
@@ -48,15 +59,18 @@ pip install -r requirements.txt
 Cloud LLM providers (`openai`, `anthropic`) are **optional** — you only need them
 for the insights step. Run with `--no-llm` to skip it entirely.
 
-The **Sherlock** plugin shells out to the Sherlock CLI, which is an external
-tool. Install it to enable that plugin:
+Several plugins shell out to external OSINT CLIs. None of these need an API key
+— install any subset to enable them:
 
 ```bash
-pip install sherlock-project
+pip install sherlock-project maigret socialscan holehe
 ```
 
-If Sherlock isn't installed, its result is recorded as a failed plugin and the
-rest of the run continues normally.
+`gravatar` needs nothing extra (HTTP only). If a tool isn't installed, its
+result is recorded as a failed plugin and the rest of the run continues
+normally. Deep mode (`aseye deep-research`) runs each of these at its maximum
+settings (more sites, longer timeouts; `holehe` additionally enables
+password-recovery probing).
 
 The **Have I Been Pwned** plugin (emails) needs a HIBP API key. Get one at
 <https://haveibeenpwned.com/API/Key>, then provide it via environment variable
@@ -85,8 +99,11 @@ aseye run johndoe --no-llm
 # Deep research: every plugin at max settings
 aseye deep-research johndoe
 
-# Just Sherlock (requires `pip install sherlock-project`)
-aseye run johndoe --plugins sherlock --no-llm
+# Username sweep across the keyless tools (install them first)
+aseye run johndoe --plugins sherlock,maigret,socialscan --no-llm
+
+# Email checks with no API key at all (Holehe + Gravatar)
+aseye run someone@example.com --plugins holehe,gravatar,socialscan --no-llm
 
 # Email breach check via Have I Been Pwned (requires HIBP_API_KEY)
 aseye run someone@example.com --plugins hibp --no-llm

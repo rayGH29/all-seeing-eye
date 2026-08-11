@@ -35,6 +35,10 @@ plugins:
   #   sherlock:
   #     request_timeout: 15     # per-site request timeout
   #     sites: [GitHub, Reddit] # limit to specific sites (empty = all)
+  #   maigret:
+  #     top_sites: 300          # how many top-ranked sites to scan
+  #   holehe:
+  #     password_recovery: false  # true may send recovery emails to the target
   #   hibp:
   #     # Prefer the HIBP_API_KEY env var over putting the key here.
   #     api_key: ""
