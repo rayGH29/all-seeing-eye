@@ -21,12 +21,12 @@ from aseye.config import Config, init_config, load_config
 from aseye.core import orchestrator, registry
 from aseye.core.exceptions import AseyeError
 from aseye.models import PluginStatus, RunMode
+from aseye.utils.banner import print_banner
 from aseye.utils.logging import console, setup_logging
 
 app = typer.Typer(
     help="all-seeing-eye — modular local OSINT with LLM-driven insights.",
     add_completion=True,
-    no_args_is_help=True,
 )
 plugins_app = typer.Typer(help="Inspect available plugins.", no_args_is_help=True)
 config_app = typer.Typer(help="Manage configuration.", no_args_is_help=True)
@@ -40,14 +40,20 @@ def _version_callback(value: bool) -> None:
         raise typer.Exit()
 
 
-@app.callback()
+@app.callback(invoke_without_command=True)
 def _main(
+    ctx: typer.Context,
     _version: Optional[bool] = typer.Option(
         None, "--version", callback=_version_callback, is_eager=True, help="Show version and exit."
     ),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Enable debug logging."),
 ) -> None:
     setup_logging(verbose=verbose)
+    # No subcommand -> launch the interactive shell ("mini app").
+    if ctx.invoked_subcommand is None:
+        from aseye.shell import run_shell
+
+        run_shell(verbose=verbose)
 
 
 def _parse_plugins_option(value: Optional[str]) -> Optional[List[str]]:
@@ -65,7 +71,8 @@ def _execute(
     output: Optional[str],
     fmt: Optional[str],
 ) -> None:
-    """Shared body for `run` and `deep-research`."""
+    """Shared body for the one-shot `run` and `deep-research` commands."""
+    print_banner()
     try:
         config = load_config(config_path)
     except AseyeError as exc:
@@ -76,10 +83,10 @@ def _execute(
         config.output.dir = output
 
     try:
-        outcome = orchestrator.run(
+        outcome = run_target(
             config,
             target,
-            mode=mode,
+            mode,
             only=_parse_plugins_option(plugins),
             use_llm=not no_llm,
             output_format=fmt,
@@ -89,6 +96,29 @@ def _execute(
         raise typer.Exit(code=1)
 
     _print_summary(outcome, config)
+
+
+def run_target(
+    config: Config,
+    target: str,
+    mode: RunMode,
+    *,
+    only: Optional[List[str]] = None,
+    use_llm: bool = True,
+    output_format: Optional[str] = None,
+) -> orchestrator.RunOutcome:
+    """Banner-free, no-exit run used by both the CLI and the interactive shell.
+
+    Raises :class:`AseyeError` on failure (callers decide how to present it).
+    """
+    return orchestrator.run(
+        config,
+        target,
+        mode=mode,
+        only=only,
+        use_llm=use_llm,
+        output_format=output_format,
+    )
 
 
 def _print_summary(outcome: orchestrator.RunOutcome, config: Config) -> None:

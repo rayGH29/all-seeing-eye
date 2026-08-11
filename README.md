@@ -33,6 +33,7 @@ core.
 ```
 aseye/                 main package
 ├── cli.py             Typer CLI (run, deep-research, plugins, config)
+├── shell.py           interactive REPL ("mini app") launched by bare `aseye`
 ├── config.py          YAML + env config loading
 ├── models.py          Target, PluginResult, Report
 ├── core/
@@ -85,7 +86,27 @@ export HIBP_API_KEY=your-key       # env wins over config
 Without a key, the HIBP result is recorded as a failed plugin and the run
 continues. In deep mode it also fetches pastes and includes unverified breaches.
 
-## Usage
+## Interactive app
+
+Run `aseye` with **no arguments** to launch the interactive shell. The banner
+shows once, then you type commands directly (no need to retype `aseye`):
+
+```text
+aseye
+aseye > help
+aseye > plugins                     # list plugins with ON/OFF status
+aseye > plugins off sherlock        # turn one off (saved to config.yaml)
+aseye > plugins info sherlock       # see how deep mode changes its settings
+aseye > run johndoe --no-llm
+aseye > deep-research someone@example.com
+aseye > exit
+```
+
+Features: command history (arrow keys), tab-completion of commands and plugin
+names, and plugin on/off toggles that persist to `config.yaml`. Every command is
+also available one-shot from your OS shell for scripting (below).
+
+## Usage (one-shot)
 
 ```bash
 # One-time: create a config you can edit
