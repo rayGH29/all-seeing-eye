@@ -12,9 +12,10 @@ settings.
 > people's privacy.
 
 This repository contains the **skeleton**: the framework, CLI, config,
-orchestration pipeline, report layer, and LLM abstraction, plus a working
-example plugin and a working **Sherlock** integration. Further integrations are
-dropped into `plugins/` without touching the core.
+orchestration pipeline, report layer, and LLM abstraction, plus working
+plugins: an **example** reference plugin, a **Sherlock** username hunter, and a
+**Have I Been Pwned** email breach check. Further integrations are dropped into
+`plugins/` without touching the core.
 
 ## Architecture
 
@@ -57,6 +58,17 @@ pip install sherlock-project
 If Sherlock isn't installed, its result is recorded as a failed plugin and the
 rest of the run continues normally.
 
+The **Have I Been Pwned** plugin (emails) needs a HIBP API key. Get one at
+<https://haveibeenpwned.com/API/Key>, then provide it via environment variable
+(preferred) or config:
+
+```bash
+export HIBP_API_KEY=your-key       # env wins over config
+```
+
+Without a key, the HIBP result is recorded as a failed plugin and the run
+continues. In deep mode it also fetches pastes and includes unverified breaches.
+
 ## Usage
 
 ```bash
@@ -75,6 +87,9 @@ aseye deep-research johndoe
 
 # Just Sherlock (requires `pip install sherlock-project`)
 aseye run johndoe --plugins sherlock --no-llm
+
+# Email breach check via Have I Been Pwned (requires HIBP_API_KEY)
+aseye run someone@example.com --plugins hibp --no-llm
 
 # Target an email, pick specific plugins, choose output format
 aseye run someone@example.com --plugins example --format md

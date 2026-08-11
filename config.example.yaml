@@ -31,9 +31,13 @@ plugins:
   # Plugins to always skip (denylist by plugin name).
   disabled: []
   # Optional per-plugin settings, keyed by plugin name. Passed to run().
-  # Example:
+  # Examples:
   #   sherlock:
-  #     timeout: 60
+  #     request_timeout: 15     # per-site request timeout
+  #     sites: [GitHub, Reddit] # limit to specific sites (empty = all)
+  #   hibp:
+  #     # Prefer the HIBP_API_KEY env var over putting the key here.
+  #     api_key: ""
   settings: {}
 
 output:
