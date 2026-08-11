@@ -8,17 +8,18 @@ from aseye.models import Report
 
 
 class LLMProvider(ABC):
-    """Abstract cloud/local LLM backend.
+    """Abstract local LLM backend.
 
     Implementations turn a merged :class:`Report` into insight text. The factory
     builds the configured provider; the orchestrator calls :meth:`analyze`.
     """
 
-    def __init__(self, *, model: str, api_key: str, max_tokens: int, temperature: float):
+    def __init__(self, *, model: str, host: str, max_tokens: int, temperature: float, timeout: float):
         self.model = model
-        self.api_key = api_key
+        self.host = host
         self.max_tokens = max_tokens
         self.temperature = temperature
+        self.timeout = timeout
 
     @abstractmethod
     def analyze(self, report: Report) -> str:

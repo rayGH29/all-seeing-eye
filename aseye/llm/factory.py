@@ -1,16 +1,17 @@
-"""Build an :class:`LLMProvider` from configuration."""
+"""Build an :class:`LLMProvider` from configuration.
+
+Only local providers are supported — nothing is sent to a third-party API.
+"""
 
 from __future__ import annotations
 
 from aseye.config import LLMConfig
 from aseye.core.exceptions import LLMError
-from aseye.llm.anthropic_provider import AnthropicProvider
 from aseye.llm.base import LLMProvider
-from aseye.llm.openai_provider import OpenAIProvider
+from aseye.llm.ollama_provider import OllamaProvider
 
 _PROVIDERS = {
-    "openai": OpenAIProvider,
-    "anthropic": AnthropicProvider,
+    "ollama": OllamaProvider,
 }
 
 
@@ -24,7 +25,8 @@ def build_provider(cfg: LLMConfig) -> LLMProvider:
         )
     return provider_cls(
         model=cfg.model,
-        api_key=cfg.resolved_api_key(),
+        host=cfg.host,
         max_tokens=cfg.max_tokens,
         temperature=cfg.temperature,
+        timeout=cfg.timeout,
     )

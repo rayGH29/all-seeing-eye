@@ -21,10 +21,8 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-# Cloud LLM providers are optional so the pipeline runs offline with --no-llm.
-openai = ["openai>=1.0"]
-anthropic = ["anthropic>=0.34"]
-llm = ["openai>=1.0", "anthropic>=0.34"]
+# Note: AI insights run on a local model via Ollama over HTTP (httpx), so no
+# extra Python LLM package is required — just install Ollama and pull a model.
 # Keyless external OSINT tools used by their respective plugins.
 sherlock = ["sherlock-project>=0.15"]
 maigret = ["maigret>=0.4"]
