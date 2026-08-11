@@ -11,10 +11,10 @@ settings.
 > ⚠️ For legitimate, authorized research only. Respect laws, platform terms, and
 > people's privacy.
 
-This repository currently contains the **skeleton**: the framework, CLI, config,
-orchestration pipeline, report layer, and LLM abstraction, plus one working
-example plugin and one Sherlock stub. Real integrations are dropped into
-`plugins/` without touching the core.
+This repository contains the **skeleton**: the framework, CLI, config,
+orchestration pipeline, report layer, and LLM abstraction, plus a working
+example plugin and a working **Sherlock** integration. Further integrations are
+dropped into `plugins/` without touching the core.
 
 ## Architecture
 
@@ -47,6 +47,16 @@ pip install -r requirements.txt
 Cloud LLM providers (`openai`, `anthropic`) are **optional** — you only need them
 for the insights step. Run with `--no-llm` to skip it entirely.
 
+The **Sherlock** plugin shells out to the Sherlock CLI, which is an external
+tool. Install it to enable that plugin:
+
+```bash
+pip install sherlock-project
+```
+
+If Sherlock isn't installed, its result is recorded as a failed plugin and the
+rest of the run continues normally.
+
 ## Usage
 
 ```bash
@@ -62,6 +72,9 @@ aseye run johndoe --no-llm
 
 # Deep research: every plugin at max settings
 aseye deep-research johndoe
+
+# Just Sherlock (requires `pip install sherlock-project`)
+aseye run johndoe --plugins sherlock --no-llm
 
 # Target an email, pick specific plugins, choose output format
 aseye run someone@example.com --plugins example --format md
@@ -105,10 +118,9 @@ class MyPlugin(BasePlugin):
 
 That's it — it will appear in `aseye plugins list` and run automatically. See
 `plugins/example_plugin.py` (working sample) and `plugins/sherlock_plugin.py`
-(external-CLI wrapper pattern) for reference.
+(a real external-CLI wrapper: subprocess + CSV parsing) for reference.
 
 ## Roadmap / out of scope for the skeleton
 
-Real Sherlock and other integrations, entity resolution/de-duplication across
-plugins, persistent storage, and a web UI. The skeleton leaves clean seams for
-all of these.
+More integrations, entity resolution/de-duplication across plugins, persistent
+storage, and a web UI. The skeleton leaves clean seams for all of these.

@@ -25,6 +25,8 @@ dependencies = [
 openai = ["openai>=1.0"]
 anthropic = ["anthropic>=0.34"]
 llm = ["openai>=1.0", "anthropic>=0.34"]
+# The Sherlock plugin shells out to the Sherlock CLI (external tool).
+sherlock = ["sherlock-project>=0.15"]
 
 [project.scripts]
 aseye = "aseye.cli:app"
