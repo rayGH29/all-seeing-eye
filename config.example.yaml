@@ -1,26 +1,26 @@
 # all-seeing-eye — example configuration.
 #
 # Copy this file to `config.yaml` (or run `aseye config init`) and edit it.
-# `config.yaml` is gitignored so your API keys never get committed.
+# `config.yaml` is gitignored.
 #
-# Secrets can also be provided via environment variables, which always take
-# precedence over values in this file:
-#   OPENAI_API_KEY, ANTHROPIC_API_KEY
+# Insights run on a LOCAL model — nothing is sent to any third-party API.
 
 llm:
-  # Whether to send the merged report to an LLM for cross-referencing/insights.
-  # You can always override per-run with the --no-llm flag.
+  # Whether to run the merged report through a local LLM for
+  # cross-referencing/insights. Override per-run with the --no-llm flag.
   enabled: true
-  # Which provider to use: "openai" or "anthropic".
-  provider: openai
-  # Model name for the chosen provider.
-  model: gpt-4o-mini
-  # API key. Prefer setting the matching environment variable instead of
-  # putting the secret here. Leave blank to require the env var.
-  api_key: ""
+  # Local backend. Currently supported: "ollama".
+  provider: ollama
+  # Model to use — must already be pulled, e.g. `ollama pull llama3.1`.
+  model: llama3.1
+  # Where the local model server is listening.
+  host: http://localhost:11434
   # Max tokens for the insights response.
   max_tokens: 1500
   temperature: 0.2
+  # How long to wait for the local model to respond (seconds). Local
+  # generation can be slow on CPU-only machines.
+  timeout: 300
 
 plugins:
   # Folder to auto-discover drop-in plugins from (relative to CWD or absolute).

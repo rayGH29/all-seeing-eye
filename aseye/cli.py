@@ -186,12 +186,9 @@ def config_init(
 def config_show(
     config_path: Optional[str] = typer.Option(None, "--config", "-c", help="Path to config.yaml."),
 ) -> None:
-    """Print the effective configuration (with the API key masked)."""
+    """Print the effective configuration."""
     config = load_config(config_path)
     dump = config.model_dump()
-    # Never print the raw secret.
-    if dump.get("llm", {}).get("api_key"):
-        dump["llm"]["api_key"] = "***set***"
     source = config.source_path or "built-in defaults"
     console.print(Panel.fit(f"Source: {source}", border_style="blue"))
     console.print_json(data=dump)

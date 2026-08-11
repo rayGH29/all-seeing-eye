@@ -1,9 +1,8 @@
 """Configuration loading and merging.
 
 Precedence (highest wins):
-  1. Environment variables (for secrets: OPENAI_API_KEY, ANTHROPIC_API_KEY)
-  2. Values from the YAML config file (config.yaml)
-  3. Built-in defaults
+  1. Values from the YAML config file (config.yaml)
+  2. Built-in defaults
 
 The parsed config is exposed as pydantic models so the rest of the code gets
 typed, validated access.
@@ -11,7 +10,6 @@ typed, validated access.
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -23,29 +21,18 @@ from aseye.core.exceptions import ConfigError
 DEFAULT_CONFIG_FILENAME = "config.yaml"
 EXAMPLE_CONFIG_FILENAME = "config.example.yaml"
 
-# Which env var holds the API key for each provider.
-_PROVIDER_ENV_KEYS = {
-    "openai": "OPENAI_API_KEY",
-    "anthropic": "ANTHROPIC_API_KEY",
-}
-
 
 class LLMConfig(BaseModel):
+    """Local LLM settings. Insights run entirely on-machine (e.g. via Ollama);
+    no data is sent to any third-party API."""
+
     enabled: bool = True
-    provider: str = "openai"
-    model: str = "gpt-4o-mini"
-    api_key: str = ""
+    provider: str = "ollama"
+    model: str = "llama3.1"
+    host: str = "http://localhost:11434"
     max_tokens: int = 1500
     temperature: float = 0.2
-
-    def resolved_api_key(self) -> str:
-        """Return the API key, preferring the provider's environment variable."""
-        env_var = _PROVIDER_ENV_KEYS.get(self.provider.lower())
-        if env_var:
-            env_val = os.environ.get(env_var)
-            if env_val:
-                return env_val
-        return self.api_key
+    timeout: float = 300.0
 
 
 class PluginsConfig(BaseModel):
