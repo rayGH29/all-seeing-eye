@@ -21,6 +21,7 @@ from aseye.config import Config, init_config, load_config
 from aseye.core import orchestrator, registry
 from aseye.core.exceptions import AseyeError
 from aseye.models import PluginStatus, RunMode
+from aseye.utils.banner import print_banner
 from aseye.utils.logging import console, setup_logging
 
 app = typer.Typer(
@@ -66,6 +67,7 @@ def _execute(
     fmt: Optional[str],
 ) -> None:
     """Shared body for `run` and `deep-research`."""
+    print_banner()
     try:
         config = load_config(config_path)
     except AseyeError as exc:
