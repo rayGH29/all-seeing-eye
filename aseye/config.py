@@ -99,6 +99,18 @@ def load_config(path: Optional[str] = None) -> Config:
     return config
 
 
+def save_config(config: "Config", path: Optional[str] = None) -> Path:
+    """Write ``config`` back to YAML (default: its source file or ./config.yaml).
+
+    Used by the interactive shell to persist plugin on/off toggles.
+    """
+    dest = Path(path or config.source_path or DEFAULT_CONFIG_FILENAME).expanduser()
+    data = config.model_dump(exclude={"source_path"})
+    dest.write_text(yaml.safe_dump(data, sort_keys=False), encoding="utf-8")
+    config.source_path = str(dest)
+    return dest
+
+
 def init_config(dest: Optional[str] = None, *, force: bool = False) -> Path:
     """Create a `config.yaml` from the bundled example.
 

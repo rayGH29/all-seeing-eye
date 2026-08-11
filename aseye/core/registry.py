@@ -38,11 +38,13 @@ def _load_module(path: Path):
     return module
 
 
-def discover(plugins_config: PluginsConfig) -> List[BasePlugin]:
-    """Discover and instantiate all enabled plugins.
+def discover(plugins_config: PluginsConfig, *, apply_filters: bool = True) -> List[BasePlugin]:
+    """Discover and instantiate plugins.
 
-    Applies the config allowlist (``enabled``) and denylist (``disabled``) by
-    plugin ``name``. An empty ``enabled`` list means "all discovered plugins".
+    With ``apply_filters`` (default), applies the config allowlist (``enabled``)
+    and denylist (``disabled``) by plugin ``name`` — an empty ``enabled`` list
+    means "all discovered plugins". Pass ``apply_filters=False`` to get every
+    discovered plugin regardless of on/off state (used to show ON/OFF status).
     """
     plugins_dir = Path(plugins_config.dir).expanduser()
     if not plugins_dir.is_dir():
@@ -68,6 +70,8 @@ def discover(plugins_config: PluginsConfig) -> List[BasePlugin]:
             except Exception as exc:  # noqa: BLE001
                 log.error("Failed to instantiate plugin %s: %s", obj.__name__, exc)
 
+    if not apply_filters:
+        return discovered
     return _apply_filters(discovered, plugins_config)
 
 
