@@ -1,0 +1,53 @@
+# all-seeing-eye — example configuration.
+#
+# Copy this file to `config.yaml` (or run `aseye config init`) and edit it.
+# `config.yaml` is gitignored so your API keys never get committed.
+#
+# Secrets can also be provided via environment variables, which always take
+# precedence over values in this file:
+#   OPENAI_API_KEY, ANTHROPIC_API_KEY
+
+llm:
+  # Whether to send the merged report to an LLM for cross-referencing/insights.
+  # You can always override per-run with the --no-llm flag.
+  enabled: true
+  # Which provider to use: "openai" or "anthropic".
+  provider: openai
+  # Model name for the chosen provider.
+  model: gpt-4o-mini
+  # API key. Prefer setting the matching environment variable instead of
+  # putting the secret here. Leave blank to require the env var.
+  api_key: ""
+  # Max tokens for the insights response.
+  max_tokens: 1500
+  temperature: 0.2
+
+plugins:
+  # Folder to auto-discover drop-in plugins from (relative to CWD or absolute).
+  dir: plugins
+  # If non-empty, ONLY these plugins run (allowlist by plugin name).
+  # Leave empty to run every discovered plugin that isn't disabled.
+  enabled: []
+  # Plugins to always skip (denylist by plugin name).
+  disabled: []
+  # Optional per-plugin settings, keyed by plugin name. Passed to run().
+  # Examples:
+  #   sherlock:
+  #     request_timeout: 15     # per-site request timeout
+  #     sites: [GitHub, Reddit] # limit to specific sites (empty = all)
+  #   hibp:
+  #     # Prefer the HIBP_API_KEY env var over putting the key here.
+  #     api_key: ""
+  settings: {}
+
+output:
+  # Where generated reports are written.
+  dir: reports
+  # Default report format: "json", "md", or "both".
+  format: both
+
+concurrency:
+  # How many plugins to run in parallel.
+  max_workers: 8
+  # Per-plugin hard timeout in seconds.
+  timeout: 120
