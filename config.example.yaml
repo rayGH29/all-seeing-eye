@@ -39,6 +39,9 @@ plugins:
   #     top_sites: 300          # how many top-ranked sites to scan
   #   holehe:
   #     password_recovery: false  # true may send recovery emails to the target
+  #   toutatis:
+  #     # Instagram sessionid cookie. Prefer the TOUTATIS_SESSIONID env var.
+  #     sessionid: ""
   #   hibp:
   #     # Prefer the HIBP_API_KEY env var over putting the key here.
   #     api_key: ""

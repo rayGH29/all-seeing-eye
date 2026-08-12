@@ -26,6 +26,7 @@ core.
 | `socialscan` | username, email | no | `pip install socialscan` |
 | `holehe` | email | no | `pip install holehe` |
 | `gravatar` | email | no | built in (HTTP only) |
+| `toutatis` | username (Instagram) | **yes** (`TOUTATIS_SESSIONID`) | `pip install toutatis` |
 | `hibp` | email | **yes** (`HIBP_API_KEY`) | built in |
 
 ## Architecture
@@ -85,6 +86,19 @@ export HIBP_API_KEY=your-key       # env wins over config
 
 Without a key, the HIBP result is recorded as a failed plugin and the run
 continues. In deep mode it also fetches pastes and includes unverified breaches.
+
+The **Toutatis** plugin (Instagram usernames) needs a valid Instagram
+**sessionid** cookie — grab it from your browser's cookies for instagram.com
+while logged in:
+
+```bash
+pip install toutatis
+export TOUTATIS_SESSIONID=your-sessionid   # env wins over config
+```
+
+It returns profile data (name, verified/business flags, follower counts, public
+email/phone); in deep mode it also runs the recovery lookup for the obfuscated
+email/phone. Use only against accounts you're authorized to investigate.
 
 ## Interactive app
 
