@@ -21,6 +21,10 @@ from aseye.core.exceptions import ConfigError
 DEFAULT_CONFIG_FILENAME = "config.yaml"
 EXAMPLE_CONFIG_FILENAME = "config.example.yaml"
 
+# User drop-in plugins folder, searched in addition to the bundled plugins.
+# Auto-created on first discovery. Drop your own `*.py` plugins here.
+USER_PLUGINS_DIR = str(Path.home() / ".all-seeing-eye" / "plugins")
+
 
 class LLMConfig(BaseModel):
     """Local LLM settings. Insights run entirely on-machine (e.g. via Ollama);
@@ -36,7 +40,10 @@ class LLMConfig(BaseModel):
 
 
 class PluginsConfig(BaseModel):
-    dir: str = "plugins"
+    # Optional EXTRA folder to discover plugins from (absolute, or relative to
+    # CWD). The bundled plugins and the user folder (~/.all-seeing-eye/plugins)
+    # are always searched regardless of this value; empty = no extra folder.
+    dir: str = ""
     enabled: List[str] = Field(default_factory=list)
     disabled: List[str] = Field(default_factory=list)
     settings: Dict[str, Dict[str, Any]] = Field(default_factory=dict)
