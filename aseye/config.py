@@ -21,9 +21,13 @@ from aseye.core.exceptions import ConfigError
 DEFAULT_CONFIG_FILENAME = "config.yaml"
 EXAMPLE_CONFIG_FILENAME = "config.example.yaml"
 
+# Per-user data directory for all-seeing-eye. One home for user state
+# (plugins, shell history, …) so features don't each invent their own path.
+USER_DATA_DIR = Path.home() / ".all-seeing-eye"
+
 # User drop-in plugins folder, searched in addition to the bundled plugins.
 # Auto-created on first discovery. Drop your own `*.py` plugins here.
-USER_PLUGINS_DIR = str(Path.home() / ".all-seeing-eye" / "plugins")
+USER_PLUGINS_DIR = str(USER_DATA_DIR / "plugins")
 
 
 class LLMConfig(BaseModel):

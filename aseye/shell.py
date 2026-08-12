@@ -18,7 +18,7 @@ from typing import List, Optional, Tuple
 
 from rich.table import Table
 
-from aseye.config import Config, load_config, save_config
+from aseye.config import USER_DATA_DIR, Config, load_config, save_config
 from aseye.core import registry
 from aseye.core.exceptions import AseyeError
 from aseye.core.plugin_base import BasePlugin
@@ -26,7 +26,7 @@ from aseye.models import RunMode
 from aseye.utils.banner import print_banner
 from aseye.utils.logging import console
 
-_HISTORY_FILE = Path.home() / ".aseye_history"
+_HISTORY_FILE = USER_DATA_DIR / "history"
 
 _HELP = [
     ("run <target> [opts]", "Run a normal sweep (opts: --no-llm, -p a,b, -o dir, -f json|md|both)"),
@@ -167,7 +167,7 @@ class AseyeShell:
             table.add_row(str(i), p.name, status, targets, p.description)
         console.print(table)
         if not plugins:
-            console.print(f"[yellow]No plugins found in '{self.config.plugins.dir}'.[/yellow]")
+            console.print("[yellow]No plugins found.[/yellow]")
         else:
             console.print("[dim]toggle with:[/dim] plugins on <name|#>  /  plugins off <name|#>")
 

@@ -15,9 +15,10 @@ error in one file never breaks discovery of the rest.
 
 from __future__ import annotations
 
-import hashlib
 import importlib.util
 import inspect
+import itertools
+from functools import lru_cache
 from pathlib import Path
 from typing import Dict, List
 
@@ -30,6 +31,10 @@ log = get_logger(__name__)
 # Bundled plugins ship inside the package (sibling of aseye/core/).
 BUILTIN_PLUGINS_DIR = Path(__file__).resolve().parent.parent / "builtin_plugins"
 
+# Monotonic suffix so files with the same basename in different folders get
+# distinct module names.
+_module_counter = itertools.count()
+
 
 def _iter_plugin_files(plugins_dir: Path):
     """Yield candidate plugin files, skipping dunder/private modules."""
@@ -41,9 +46,7 @@ def _iter_plugin_files(plugins_dir: Path):
 
 def _load_module(path: Path):
     """Import a single .py file as an isolated module object."""
-    # Hash the full path so plugins with the same filename in different folders
-    # don't collide in the import system.
-    module_name = "aseye_plugin_" + hashlib.md5(str(path).encode()).hexdigest()[:10]
+    module_name = f"aseye_plugin_{next(_module_counter)}"
     spec = importlib.util.spec_from_file_location(module_name, path)
     if spec is None or spec.loader is None:
         raise ImportError(f"Could not create import spec for {path}")
@@ -76,21 +79,22 @@ def _load_from_dir(plugins_dir: Path) -> List[BasePlugin]:
     return result
 
 
-def _plugin_dirs(cfg: PluginsConfig) -> List[Path]:
-    """Ordered plugin folders: bundled, then user, then the optional config dir."""
-    dirs: List[Path] = [BUILTIN_PLUGINS_DIR]
-
+@lru_cache(maxsize=1)
+def _ensure_user_dir() -> Path:
+    """Create (once per process) and return the user drop-in plugins folder."""
     user_dir = Path(USER_PLUGINS_DIR).expanduser()
     try:
         user_dir.mkdir(parents=True, exist_ok=True)  # give the user a place to drop plugins
     except OSError as exc:
         log.debug("Could not create user plugins dir %s: %s", user_dir, exc)
-    dirs.append(user_dir)
+    return user_dir
 
+
+def _plugin_dirs(cfg: PluginsConfig) -> List[Path]:
+    """Ordered plugin folders: bundled, then user, then the optional config dir."""
+    dirs = [BUILTIN_PLUGINS_DIR, _ensure_user_dir()]
     if cfg.dir:
-        extra = Path(cfg.dir).expanduser()
-        if extra not in dirs:
-            dirs.append(extra)
+        dirs.append(Path(cfg.dir).expanduser())
     return dirs
 
 

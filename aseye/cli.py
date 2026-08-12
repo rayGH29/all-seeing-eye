@@ -196,7 +196,7 @@ def plugins_list(
 
     console.print(table)
     if not discovered:
-        console.print(f"[yellow]No plugins found in '{config.plugins.dir}'.[/yellow]")
+        console.print("[yellow]No plugins found.[/yellow]")
 
 
 @config_app.command("init")
