@@ -40,8 +40,8 @@ commands) and as a **one-shot CLI** (`aseye run <target>`) for scripting.
 
 ## Features
 
-- **Modular plugin system** — drop a `.py` file into `plugins/`, it's discovered
-  automatically. No core changes needed.
+- **Modular plugin system** — drop a `.py` file into your user plugins folder
+  (`~/.all-seeing-eye/plugins`), it's discovered automatically. No core changes.
 - **Username & email targets** — the tool auto-detects which and only runs the
   plugins that support that target type.
 - **Interactive shell** — history, tab-completion, and plugin on/off toggles.
@@ -383,7 +383,7 @@ llm:
   timeout: 300
 
 plugins:
-  dir: plugins            # where plugins are discovered
+  dir: ""                 # optional EXTRA folder (bundled + ~/.all-seeing-eye/plugins always searched)
   enabled: []             # allowlist (empty = all not disabled)
   disabled: []            # denylist (toggled by `plugins on/off`)
   settings:               # per-plugin overrides, keyed by plugin name
@@ -426,7 +426,16 @@ Choose the format with `-f json|md|both`, or set `output.format` in the config.
 
 ## Writing your own plugin
 
-Drop a `*.py` file into `plugins/` that subclasses `BasePlugin`:
+The built-in plugins ship **inside the package** (`aseye/builtin_plugins/`), so
+they're found from any directory and any install type. To add your own, drop a
+`*.py` file into your **user plugins folder** — created automatically the first
+time you run the tool:
+
+- **Windows:** `C:\Users\<you>\.all-seeing-eye\plugins`
+- **macOS/Linux:** `~/.all-seeing-eye/plugins`
+
+(Or point `plugins.dir` in `config.yaml` at any extra folder.) Your file just
+needs to subclass `BasePlugin`:
 
 ```python
 from aseye.core.plugin_base import BasePlugin
@@ -449,13 +458,15 @@ class MyPlugin(BasePlugin):
 ```
 
 It appears in `aseye plugins list` and runs automatically — no core changes.
-References in this repo:
+Reference implementations (in `aseye/builtin_plugins/`):
 
-- `plugins/example_plugin.py` — minimal working sample (no network).
-- `plugins/sherlock_plugin.py` / `plugins/holehe_plugin.py` — wrapping an
-  external CLI (subprocess + parsing output in a temp dir).
-- `plugins/gravatar_plugin.py` / `plugins/hibp_plugin.py` — calling an HTTP API
-  with `httpx`.
+- `example_plugin.py` — minimal working sample (no network).
+- `sherlock_plugin.py` / `holehe_plugin.py` — wrapping an external CLI
+  (subprocess + parsing output in a temp dir).
+- `gravatar_plugin.py` / `hibp_plugin.py` — calling an HTTP API with `httpx`.
+
+Plugins are merged by name across the bundled folder, your user folder, and any
+`plugins.dir` — so a user plugin with the same `name` overrides a bundled one.
 
 ---
 
@@ -523,12 +534,13 @@ aseye/                 main package
 ├── models.py          Target, PluginResult, Report
 ├── core/
 │   ├── plugin_base.py  BasePlugin interface + RunMode
-│   ├── registry.py     auto-discovers plugins from plugins/
+│   ├── registry.py     discovers plugins (bundled + user folder + config dir)
 │   ├── orchestrator.py the pipeline (classify -> run -> merge -> insights -> write)
 │   └── report.py       merge results, render JSON/Markdown
 ├── llm/               local LLM abstraction (Ollama) + prompts
+├── builtin_plugins/   plugins bundled with the tool (installed everywhere)
 └── utils/             banner, logging, target classification
-plugins/               drop-in plugins live here
+~/.all-seeing-eye/plugins/   your own drop-in plugins (auto-created)
 ascii-eye.txt          the banner art (edit freely; loaded at runtime)
 reports/               generated reports (gitignored)
 config.example.yaml    template copied by `aseye config init`
