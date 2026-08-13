@@ -72,6 +72,7 @@ class Report(BaseModel):
     mode: RunMode
     generated_at: datetime = Field(default_factory=_utcnow)
     results: List[PluginResult] = Field(default_factory=list)
+    correlation: Optional[Dict[str, Any]] = None  # entity-resolution output
     insights: Optional[str] = None
 
     # ---- serialization helpers -------------------------------------------------
@@ -95,6 +96,32 @@ class Report(BaseModel):
             lines.append("")
             lines.append(self.insights.strip())
             lines.append("")
+
+        if self.correlation:
+            lines.append("## Correlated Identifiers")
+            lines.append("")
+            labels = [
+                ("emails", "Emails"),
+                ("usernames", "Usernames"),
+                ("names", "Names"),
+                ("phones", "Phones"),
+                ("domains", "Domains"),
+                ("profiles", "Profiles"),
+            ]
+            any_found = False
+            for key, label in labels:
+                items = self.correlation.get(key) or []
+                if not items:
+                    continue
+                any_found = True
+                lines.append(f"**{label}**")
+                for item in items:
+                    srcs = ", ".join(item.get("sources", []))
+                    lines.append(f"- `{item['value']}` — {item.get('confidence', '?')} ({srcs})")
+                lines.append("")
+            if not any_found:
+                lines.append("_No identifiers correlated._")
+                lines.append("")
 
         lines.append("## Plugin Results")
         lines.append("")

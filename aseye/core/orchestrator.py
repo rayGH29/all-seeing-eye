@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Callable, Dict, List, Optional, Sequence
 
 from aseye.config import Config
-from aseye.core import registry, report as report_mod
+from aseye.core import registry, report as report_mod, resolve
 from aseye.core.plugin_base import BasePlugin
 from aseye.llm import factory as llm_factory
 from aseye.models import PluginResult, PluginStatus, Report, RunMode, Target
@@ -99,6 +99,7 @@ def run(
     results = _run_with_progress(to_run, target, mode, config, show_progress)
 
     merged = report_mod.build_report(target, mode, results)
+    merged.correlation = resolve.resolve_identities(merged)
 
     if use_llm and config.llm.enabled:
         _attach_insights(merged, config)

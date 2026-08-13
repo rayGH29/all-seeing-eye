@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+
 from aseye.models import Report
 
 SYSTEM_PROMPT = """\
@@ -31,12 +33,22 @@ Respond in clear Markdown with short sections and bullet points.
 
 def build_user_prompt(report: Report) -> str:
     """Serialize the merged report into the analysis request body."""
+    correlation = ""
+    if report.correlation:
+        correlation = (
+            "Pre-correlated identifiers (from entity resolution across plugins; "
+            "`sources` lists which plugins reported each, `confidence` rises with "
+            "agreement):\n\n```json\n"
+            f"{json.dumps(report.correlation, indent=2, default=str)}\n```\n\n"
+        )
     return (
         f"Target: {report.target.value} (kind: {report.target.kind})\n"
         f"Run mode: {report.mode.value}\n\n"
-        "Here is the aggregated plugin data as JSON:\n\n"
+        f"{correlation}"
+        "Raw aggregated plugin data as JSON:\n\n"
         "```json\n"
         f"{report.to_json()}\n"
         "```\n\n"
-        "Produce your cross-referenced analysis and insights now."
+        "Using the correlated identifiers as your backbone, produce your "
+        "cross-referenced analysis and insights now."
     )

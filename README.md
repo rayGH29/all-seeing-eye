@@ -258,11 +258,19 @@ only runs plugins that support it.
 | `example` | username, email | no | built in (sample data) |
 | `sherlock` | username | no | `pip install sherlock-project` |
 | `maigret` | username | no | `pip install maigret` |
+| `whatsmyname` | username | no | built in (HTTP only) |
 | `socialscan` | username, email | no | `pip install socialscan` |
 | `holehe` | email | no | `pip install holehe` |
 | `gravatar` | email | no | built in (HTTP only) |
+| `github` | username **and** email | no (optional `GITHUB_TOKEN`) | built in (HTTP only) |
 | `toutatis` | username (Instagram) | **yes** — `TOUTATIS_SESSIONID` | `pip install toutatis` |
 | `hibp` | email | **yes** — `HIBP_API_KEY` | built in (HTTP only) |
+| `hunter` | email | **yes** — `HUNTER_API_KEY` | built in (HTTP only) |
+
+The **`github`** plugin is the strongest username↔email bridge: a username →
+its public commit emails, an email → the usernames behind it. It works with no
+key (60 requests/hour); set `GITHUB_TOKEN` for 5000/hour. **`hunter`** verifies
+an email and (deep mode) finds related people at its domain.
 
 If a plugin's tool isn't installed or its key is missing, that plugin is recorded
 as a **failed result** and the rest of the run continues normally.
@@ -438,6 +446,17 @@ so reports are in one place regardless of where you run the tool), named
 
 Choose the format with `-f json|md|both`, or set `output.format` in the config.
 
+### Correlated identifiers (entity resolution)
+
+Before the AI step, every run correlates the plugin results into a single set of
+**identifiers** — emails, usernames, real names, phone numbers, profile URLs,
+and domains — deduped and tagged with which plugins reported each. Agreement
+across plugins raises the confidence (e.g. an email seen by both `github` and
+`hibp` is `high`). This appears as a **Correlated Identifiers** section in the
+report and, crucially, is fed to the LLM as the backbone for cross-referencing —
+so insights start from linked identities instead of raw per-plugin blobs. It
+runs even with `--no-llm`.
+
 ---
 
 ## Writing your own plugin
@@ -552,7 +571,8 @@ aseye/                 main package
 ├── core/
 │   ├── plugin_base.py  BasePlugin interface + RunMode
 │   ├── registry.py     discovers plugins (bundled + user folder + config dir)
-│   ├── orchestrator.py the pipeline (classify -> run -> merge -> insights -> write)
+│   ├── orchestrator.py the pipeline (classify -> run -> merge -> correlate -> insights)
+│   ├── resolve.py      entity resolution (correlate identifiers across plugins)
 │   └── report.py       merge results, render JSON/Markdown
 ├── llm/               local LLM abstraction (Ollama) + prompts
 ├── builtin_plugins/   plugins bundled with the tool (installed everywhere)
