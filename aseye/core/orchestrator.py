@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
-from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
+import math
+import threading
+import time
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Callable, List, Optional, Sequence
+from typing import Callable, Dict, List, Optional, Sequence
 
 from aseye.config import Config
 from aseye.core import registry, report as report_mod
@@ -150,59 +152,66 @@ def _run_plugins_concurrently(
     config: Config,
     on_complete: Optional[Callable[[], None]] = None,
 ) -> List[PluginResult]:
-    """Run plugins in a thread pool with a per-plugin timeout."""
+    """Run plugins concurrently under a hard overall time budget.
+
+    Each plugin runs in its own **daemon** thread, capped to ``max_workers``
+    concurrent by a semaphore. The whole run is bounded by a single deadline
+    (``timeout`` per plugin, scaled by the number of concurrency batches) rather
+    than a resettable per-wait window. A plugin that ignores its own timeouts is
+    marked TIMEOUT and abandoned — because the threads are daemons, a stuck
+    plugin can never wedge process exit.
+    """
     if not plugins:
         return []
 
-    timeout = config.concurrency.timeout
+    per_plugin_timeout = config.concurrency.timeout
     max_workers = max(1, config.concurrency.max_workers)
-    results: List[PluginResult] = []
+    batches = math.ceil(len(plugins) / max_workers)
+    budget = per_plugin_timeout * batches
+    deadline = time.monotonic() + budget
 
-    def _mark_done() -> None:
+    semaphore = threading.BoundedSemaphore(max_workers)
+    results_by_name: Dict[str, PluginResult] = {}
+    lock = threading.Lock()
+
+    def _worker(plugin: BasePlugin) -> None:
+        if not semaphore.acquire(timeout=max(0.0, deadline - time.monotonic())):
+            return  # never got a slot before the deadline; main loop marks it timed out
+        try:
+            result = _run_one_plugin(
+                plugin, target, mode, config.plugins.settings.get(plugin.name, {})
+            )
+        finally:
+            semaphore.release()
+        with lock:
+            results_by_name[plugin.name] = result
+
+    threads = []
+    for plugin in plugins:
+        thread = threading.Thread(
+            target=_worker, args=(plugin,), name=f"aseye-{plugin.name}", daemon=True
+        )
+        thread.start()
+        threads.append((plugin, thread))
+
+    results: List[PluginResult] = []
+    for plugin, thread in threads:  # plugins order -> stable, readable reports
+        thread.join(timeout=max(0.0, deadline - time.monotonic()))
+        with lock:
+            result = results_by_name.get(plugin.name)
+        if result is None:
+            log.warning("Plugin '%s' exceeded the run budget of %ss.", plugin.name, budget)
+            result = PluginResult(
+                plugin=plugin.name,
+                status=PluginStatus.TIMEOUT,
+                mode=mode,
+                error=f"Timed out (run budget {budget:.0f}s).",
+                finished_at=datetime.now(timezone.utc),
+            )
+        results.append(result)
         if on_complete is not None:
             on_complete()
 
-    with ThreadPoolExecutor(max_workers=max_workers) as pool:
-        future_to_plugin = {
-            pool.submit(
-                _run_one_plugin,
-                plugin,
-                target,
-                mode,
-                config.plugins.settings.get(plugin.name, {}),
-            ): plugin
-            for plugin in plugins
-        }
-        pending = set(future_to_plugin)
-        deadline_reached = False
-        while pending and not deadline_reached:
-            done, pending = wait(pending, timeout=timeout, return_when=FIRST_COMPLETED)
-            if not done:
-                # Nothing completed within the timeout window -> mark stragglers.
-                deadline_reached = True
-                break
-            for fut in done:
-                results.append(fut.result())
-                _mark_done()
-
-        for fut in pending:
-            plugin = future_to_plugin[fut]
-            fut.cancel()
-            log.warning("Plugin '%s' timed out after %ss.", plugin.name, timeout)
-            results.append(
-                PluginResult(
-                    plugin=plugin.name,
-                    status=PluginStatus.TIMEOUT,
-                    mode=mode,
-                    error=f"Timed out after {timeout}s.",
-                    finished_at=datetime.now(timezone.utc),
-                )
-            )
-            _mark_done()
-
-    # Preserve the input plugin order for stable, readable reports.
-    order = {p.name: i for i, p in enumerate(plugins)}
-    results.sort(key=lambda r: order.get(r.plugin, 0))
     return results
 
 

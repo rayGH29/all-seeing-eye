@@ -412,8 +412,8 @@ output:
   format: both                     # json | md | both
 
 concurrency:
-  max_workers: 8          # plugins run in parallel
-  timeout: 120            # per-plugin hard timeout (seconds)
+  max_workers: 8          # plugins run in parallel (daemon threads)
+  timeout: 120            # per-plugin time budget; run bounded by timeout x batches
 ```
 
 - **Secrets** (`HIBP_API_KEY`, `TOUTATIS_SESSIONID`) are best set as environment
