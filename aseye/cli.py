@@ -28,6 +28,7 @@ from aseye.config import (
     Config,
     init_config,
     load_config,
+    save_config,
 )
 from aseye.core import orchestrator, registry
 from aseye.core.exceptions import AseyeError
@@ -266,6 +267,94 @@ def _status_cell(state: Optional[bool], ok_text: str, bad_text: str) -> str:
     return f"[green]{ok_text}[/green]" if state else f"[red]{bad_text}[/red]"
 
 
+# ---- per-plugin settings editing (shared by CLI + shell) ---------------------
+
+def find_plugin(config: Config, name: str):
+    """Return the discovered plugin instance with this name, or None."""
+    for plugin in registry.discover(config.plugins, apply_filters=False):
+        if plugin.name == name:
+            return plugin
+    return None
+
+
+def _coerce(default: object, raw: str):
+    """Coerce a string value to match the type of the plugin's default."""
+    if isinstance(default, bool):
+        return raw.strip().lower() in ("1", "true", "yes", "on")
+    if isinstance(default, int):
+        return int(raw)
+    if isinstance(default, float):
+        return float(raw)
+    if isinstance(default, list):
+        return [item.strip() for item in raw.split(",") if item.strip()]
+    return raw
+
+
+def set_plugin_setting(config: Config, name: str, mode: str, key: str, raw: str):
+    """Set a plugin's per-mode setting (only keys the plugin defines). Persists."""
+    mode = mode.lower()
+    if mode not in ("normal", "deep"):
+        raise AseyeError("mode must be 'normal' or 'deep'.")
+    plugin = find_plugin(config, name)
+    if plugin is None:
+        raise AseyeError(f"Unknown plugin '{name}'.")
+    editable = plugin.editable_settings()
+    if key not in editable:
+        allowed = ", ".join(sorted(editable)) or "(none)"
+        raise AseyeError(f"'{key}' is not a setting of {name}. Editable: {allowed}.")
+    value = _coerce(editable[key], raw)
+    store = config.plugins.settings.setdefault(name, {})
+    store.setdefault(mode, {})[key] = value
+    save_config(config)
+    return value
+
+
+def reset_plugin_settings(config: Config, name: str, mode: Optional[str] = None) -> None:
+    """Clear a plugin's overrides (a mode, or all). Persists."""
+    store = config.plugins.settings.get(name)
+    if not store:
+        return
+    if mode:
+        store.pop(mode.lower(), None)
+    else:
+        store.pop("normal", None)
+        store.pop("deep", None)
+    save_config(config)
+
+
+def render_plugin_info(config: Config, name: str) -> None:
+    """Print a plugin's effective normal vs deep settings (with overrides marked)."""
+    plugin = find_plugin(config, name)
+    if plugin is None:
+        console.print(f"[red]Unknown plugin '{name}'.[/red]")
+        return
+    overrides = config.plugins.settings.get(name, {})
+    normal = plugin.resolve_settings(RunMode.NORMAL, overrides)
+    deep = plugin.resolve_settings(RunMode.DEEP, overrides)
+    overridden = set(overrides.get("normal", {})) | set(overrides.get("deep", {})) | {
+        k for k in overrides if k not in ("normal", "deep")
+    }
+
+    keys = sorted(set(normal) | set(deep))
+    table = Table(title=f"{name} — settings by mode")
+    table.add_column("Setting", style="cyan")
+    table.add_column("normal")
+    table.add_column("deep")
+    for key in keys:
+        nv, dv = normal.get(key), deep.get(key)
+        label = f"{key} *" if key in overridden else key
+        dv_str = f"[yellow]{dv}[/yellow]" if nv != dv else str(dv)
+        table.add_row(label, str(nv), dv_str)
+    console.print(table)
+    if overridden:
+        console.print("[dim]* has a user override · edit with[/dim] "
+                      f"[cyan]plugins set {name} <normal|deep> <key> <value>[/cyan]")
+    elif keys:
+        console.print(f"[dim]edit with[/dim] [cyan]plugins set {name} <normal|deep> <key> <value>[/cyan]")
+    else:
+        console.print("[dim]This plugin has no editable settings.[/dim]")
+
+
 @app.command()
 def doctor(
     config_path: Optional[str] = typer.Option(None, "--config", "-c", help="Path to config.yaml."),
@@ -365,6 +454,45 @@ def plugins_list(
     console.print(table)
     if not discovered:
         console.print("[yellow]No plugins found.[/yellow]")
+
+
+@plugins_app.command("info")
+def plugins_info(
+    name: str = typer.Argument(..., help="Plugin name."),
+    config_path: Optional[str] = typer.Option(None, "--config", "-c", help="Path to config.yaml."),
+) -> None:
+    """Show a plugin's effective normal vs deep settings."""
+    render_plugin_info(load_config(config_path), name)
+
+
+@plugins_app.command("set")
+def plugins_set(
+    name: str = typer.Argument(..., help="Plugin name."),
+    mode: str = typer.Argument(..., help="Which mode: 'normal' or 'deep'."),
+    key: str = typer.Argument(..., help="Setting name (must be one the plugin defines)."),
+    value: str = typer.Argument(..., help="New value (type is coerced to the default's type)."),
+    config_path: Optional[str] = typer.Option(None, "--config", "-c", help="Path to config.yaml."),
+) -> None:
+    """Override a plugin's setting for a mode (only settings the plugin defines)."""
+    config = load_config(config_path)
+    try:
+        val = set_plugin_setting(config, name, mode, key, value)
+    except AseyeError as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise typer.Exit(code=1)
+    console.print(f"[green]set[/green] {name}.{mode}.{key} = {val!r}  [dim](saved)[/dim]")
+
+
+@plugins_app.command("reset")
+def plugins_reset(
+    name: str = typer.Argument(..., help="Plugin name."),
+    mode: Optional[str] = typer.Argument(None, help="Optional: 'normal' or 'deep' (default: both)."),
+    config_path: Optional[str] = typer.Option(None, "--config", "-c", help="Path to config.yaml."),
+) -> None:
+    """Clear a plugin's setting overrides."""
+    config = load_config(config_path)
+    reset_plugin_settings(config, name, mode)
+    console.print(f"[green]reset[/green] {name} {mode or 'overrides'}  [dim](saved)[/dim]")
 
 
 @plugins_app.command("new")

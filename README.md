@@ -16,6 +16,8 @@ commands) and as a **one-shot CLI** (`aseye run <target>`) for scripting.
 > send probes to third-party sites — only use them against accounts and targets
 > you are authorized to investigate.
 
+📖 **Full guide with an FAQ:** [DOCUMENTATION.md](DOCUMENTATION.md).
+
 ---
 
 ## Contents
@@ -186,7 +188,9 @@ aseye > exit
 | `deep-research <target>` | Every plugin at maximum settings (alias: `deep`) |
 | `plugins` | List all plugins with ON/OFF status |
 | `plugins on\|off <name\|#>` | Toggle a plugin (persisted to `config.yaml`) |
-| `plugins info <name>` | Show a plugin's normal vs deep settings side by side |
+| `plugins info <name>` | Show a plugin's effective normal vs deep settings (overrides marked `*`) |
+| `plugins set <name> <normal\|deep> <key> <value>` | Override a setting for a mode (only the plugin's own keys) |
+| `plugins reset <name> [mode]` | Clear a plugin's setting overrides |
 | `plugins new <name>` | Scaffold a starter plugin in your user folder |
 | `doctor` | Check readiness: plugins, external tools, keys, and the LLM |
 | `config` | Print the effective configuration |
@@ -208,6 +212,8 @@ aseye run <target> [OPTIONS]
 aseye deep-research <target> [OPTIONS]
 aseye doctor                 # readiness: plugins, tools, keys, LLM
 aseye plugins list
+aseye plugins info <name>    # effective normal vs deep settings
+aseye plugins set <name> <normal|deep> <key> <value>   # tune a setting
 aseye plugins new <name>     # scaffold a starter plugin
 aseye config init            # write the global config.yaml from the template
 aseye config show            # print the effective config
@@ -345,6 +351,19 @@ aseye > plugins info sherlock
 
 (Examples: Maigret scans more sites; Holehe enables password-recovery probing;
 Toutatis adds the obfuscated email/phone lookup; HIBP includes pastes.)
+
+**Tune those settings per mode** — you can override any setting a plugin
+defines, separately for normal and deep runs (persisted to `config.yaml`):
+
+```text
+aseye > plugins set sherlock deep request_timeout 45   # deep runs only
+aseye > plugins set sherlock normal sites GitHub, Reddit
+aseye > plugins info sherlock                          # overrides marked with *
+aseye > plugins reset sherlock deep                    # undo
+```
+
+Only keys the plugin exposes are editable, and the value is coerced to the right
+type. Also available one-shot: `aseye plugins set <name> <normal|deep> <key> <value>`.
 
 ---
 
@@ -597,12 +616,17 @@ aseye/                 main package
 │   └── report.py       merge results, render JSON/Markdown
 ├── llm/               local LLM abstraction (Ollama) + prompts
 ├── builtin_plugins/   plugins bundled with the tool (installed everywhere)
+├── data/              packaged data: config.example.yaml, ascii-eye.txt
 └── utils/             banner, logging, target classification
+~/.all-seeing-eye/           user home: config.yaml, plugins/, reports/, history
 ~/.all-seeing-eye/plugins/   your own drop-in plugins (auto-created)
-ascii-eye.txt          the banner art (edit freely; loaded at runtime)
-reports/               generated reports (gitignored)
-config.example.yaml    template copied by `aseye config init`
+~/.all-seeing-eye/ascii-eye.txt   optional: your own banner art (overrides the default)
 ```
+
+The config template and banner art ship **inside the package** (`aseye/data/`),
+so `aseye config init` and the banner work on every install type. To customize
+the banner, drop an `ascii-eye.txt` in `~/.all-seeing-eye/` (or the current
+directory).
 
 ---
 

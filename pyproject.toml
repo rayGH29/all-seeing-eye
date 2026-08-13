@@ -38,3 +38,8 @@ aseye = "aseye.cli:app"
 
 [tool.setuptools.packages.find]
 include = ["aseye*"]
+
+[tool.setuptools.package-data]
+# Ship the config template and banner art inside the package so they are
+# available on every install type (pip / pipx / wheel), not just from source.
+aseye = ["data/*.yaml", "data/*.txt"]
