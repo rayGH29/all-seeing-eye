@@ -75,14 +75,29 @@ class BasePlugin(ABC):
     def resolve_settings(self, mode: RunMode, overrides: Dict[str, Any]) -> Dict[str, Any]:
         """Compute effective settings for a run.
 
-        Layering (later wins): ``default_settings`` -> ``deep_settings`` (only
-        in DEEP mode) -> per-plugin config ``overrides``.
+        Layering (later wins):
+          1. ``default_settings``
+          2. ``deep_settings`` (only in DEEP mode)
+          3. flat config ``overrides`` that apply to both modes (e.g. secrets)
+          4. mode-specific config overrides under the reserved ``"normal"`` /
+             ``"deep"`` keys (set via ``plugins set``)
         """
         settings: Dict[str, Any] = dict(self.default_settings)
         if mode is RunMode.DEEP:
             settings.update(self.deep_settings)
-        settings.update(overrides or {})
+
+        overrides = overrides or {}
+        settings.update({k: v for k, v in overrides.items() if k not in ("normal", "deep")})
+        mode_overrides = overrides.get("deep" if mode is RunMode.DEEP else "normal")
+        if isinstance(mode_overrides, dict):
+            settings.update(mode_overrides)
         return settings
+
+    def editable_settings(self) -> Dict[str, Any]:
+        """The settings a user may edit (keys the plugin defines), with defaults."""
+        merged = dict(self.default_settings)
+        merged.update(self.deep_settings)
+        return merged
 
     @staticmethod
     def throttle(source: str, min_interval: float) -> None:

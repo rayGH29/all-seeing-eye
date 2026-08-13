@@ -34,6 +34,8 @@ _HELP = [
     ("plugins", "List plugins with ON/OFF status"),
     ("plugins on|off <name>", "Enable/disable a plugin (persisted to config.yaml)"),
     ("plugins info <name>", "Show a plugin's normal vs deep settings"),
+    ("plugins set <name> <normal|deep> <key> <value>", "Override a plugin setting (its own keys only)"),
+    ("plugins reset <name> [mode]", "Clear a plugin's setting overrides"),
     ("plugins new <name>", "Scaffold a starter plugin in your user folder"),
     ("doctor", "Check readiness: plugins, tools, keys, and the LLM"),
     ("config", "Show the effective configuration"),
@@ -133,6 +135,21 @@ class AseyeShell:
             except AseyeError as exc:
                 console.print(f"[red]{exc}[/red]")
             return
+        if sub == "set":
+            self._plugins_set(args[1:])
+            return
+        if sub == "reset":
+            if len(args) < 2:
+                console.print("[red]usage:[/red] plugins reset <name> [normal|deep]")
+                return
+            name = self._resolve_name(args[1])
+            if name is None:
+                return
+            from aseye.cli import reset_plugin_settings
+
+            reset_plugin_settings(self.config, name, args[2] if len(args) > 2 else None)
+            console.print(f"[green]reset[/green] {name} {args[2] if len(args) > 2 else 'overrides'}")
+            return
         if sub in ("on", "off", "info"):
             if len(args) < 2:
                 console.print(f"[red]usage:[/red] plugins {sub} <name>")
@@ -141,11 +158,32 @@ class AseyeShell:
             if name is None:
                 return
             if sub == "info":
-                self._plugins_info(name)
+                from aseye.cli import render_plugin_info
+
+                render_plugin_info(self.config, name)
             else:
                 self._plugins_toggle(name, enable=(sub == "on"))
         else:
-            console.print("[red]usage:[/red] plugins [list | on <name> | off <name> | info <name>]")
+            console.print(
+                "[red]usage:[/red] plugins [list | on <name> | off <name> | "
+                "info <name> | set <name> <normal|deep> <key> <value> | reset <name> [mode] | new <name>]"
+            )
+
+    def _plugins_set(self, args: List[str]) -> None:
+        if len(args) < 4:
+            console.print("[red]usage:[/red] plugins set <name> <normal|deep> <key> <value>")
+            return
+        name = self._resolve_name(args[0])
+        if name is None:
+            return
+        mode, key, raw = args[1], args[2], " ".join(args[3:])
+        from aseye.cli import set_plugin_setting
+
+        try:
+            value = set_plugin_setting(self.config, name, mode, key, raw)
+            console.print(f"{name}.{mode.lower()}.{key} = [green]{value!r}[/green]  [dim](saved)[/dim]")
+        except AseyeError as exc:
+            console.print(f"[red]{exc}[/red]")
 
     def _all_plugins(self) -> List[BasePlugin]:
         return sorted(
@@ -208,25 +246,6 @@ class AseyeShell:
             console.print(f"{name} -> {state}  [dim](saved to {path})[/dim]")
         except OSError as exc:
             console.print(f"[red]Could not save config:[/red] {exc}")
-
-    def _plugins_info(self, name: str) -> None:
-        plugin = next((p for p in self._all_plugins() if p.name == name), None)
-        if plugin is None:
-            return
-        normal = plugin.resolve_settings(RunMode.NORMAL, {})
-        deep = plugin.resolve_settings(RunMode.DEEP, {})
-        keys = sorted(set(normal) | set(deep))
-        table = Table(title=f"{name} — settings by mode")
-        table.add_column("Setting", style="cyan")
-        table.add_column("normal")
-        table.add_column("deep")
-        for k in keys:
-            nv, dv = normal.get(k), deep.get(k)
-            dv_str = f"[yellow]{dv}[/yellow]" if nv != dv else str(dv)
-            table.add_row(k, str(nv), dv_str)
-        console.print(table)
-        if not keys:
-            console.print("[dim]This plugin has no mode-specific settings.[/dim]")
 
     # ---- config ---------------------------------------------------------------
 
@@ -314,6 +333,8 @@ def run_shell(*, verbose: bool = False) -> None:
                 "on": plugin_names,
                 "off": plugin_names,
                 "info": plugin_names,
+                "set": plugin_names,
+                "reset": plugin_names,
                 "new": None,
             },
             "doctor": None,

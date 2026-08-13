@@ -33,21 +33,21 @@ plugins:
   enabled: []
   # Plugins to always skip (denylist by plugin name).
   disabled: []
-  # Optional per-plugin settings, keyed by plugin name. Passed to run().
+  # Optional per-plugin settings, keyed by plugin name. Easiest to edit with
+  # `plugins set <name> <normal|deep> <key> <value>` (only keys the plugin
+  # defines are allowed). Three layers, later wins:
+  #   * flat keys     -> apply to BOTH modes (good for secrets)
+  #   * normal: {...} -> overrides for normal runs only
+  #   * deep:   {...} -> overrides for deep-research runs only
   # Examples:
   #   sherlock:
-  #     request_timeout: 15     # per-site request timeout
-  #     sites: [GitHub, Reddit] # limit to specific sites (empty = all)
-  #   maigret:
-  #     top_sites: 300          # how many top-ranked sites to scan
-  #   holehe:
-  #     password_recovery: false  # true may send recovery emails to the target
+  #     sites: [GitHub, Reddit]   # both modes: limit to these sites
+  #     deep:
+  #       request_timeout: 45     # deep runs only: longer per-site timeout
   #   toutatis:
-  #     # Instagram sessionid cookie. Prefer the TOUTATIS_SESSIONID env var.
-  #     sessionid: ""
+  #     sessionid: ""             # prefer the TOUTATIS_SESSIONID env var
   #   hibp:
-  #     # Prefer the HIBP_API_KEY env var over putting the key here.
-  #     api_key: ""
+  #     api_key: ""               # prefer the HIBP_API_KEY env var
   settings: {}
 
 output:
