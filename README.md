@@ -16,6 +16,8 @@ commands) and as a **one-shot CLI** (`aseye run <target>`) for scripting.
 > send probes to third-party sites — only use them against accounts and targets
 > you are authorized to investigate.
 
+📖 **Full guide with an FAQ:** [DOCUMENTATION.md](DOCUMENTATION.md).
+
 ---
 
 ## Contents
