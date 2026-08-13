@@ -21,6 +21,17 @@ from aseye.core.exceptions import ConfigError
 DEFAULT_CONFIG_FILENAME = "config.yaml"
 EXAMPLE_CONFIG_FILENAME = "config.example.yaml"
 
+
+def read_bundled_data(name: str) -> str:
+    """Read a text file shipped in the package's ``data/`` folder.
+
+    Uses importlib.resources so it works for source, editable, and wheel
+    installs alike (the files are packaged inside ``aseye/data/``).
+    """
+    from importlib.resources import files
+
+    return files("aseye").joinpath("data").joinpath(name).read_text(encoding="utf-8")
+
 # Per-user data directory for all-seeing-eye. One home for user state
 # (config, plugins, reports, shell history, …) so features don't each invent
 # their own path — and everything works the same from any directory.
@@ -154,10 +165,11 @@ def init_config(dest: Optional[str] = None, *, force: bool = False) -> Path:
     if dest_path.exists() and not force:
         raise ConfigError(f"{dest_path} already exists (use --force to overwrite).")
 
-    example_path = Path(__file__).resolve().parent.parent / EXAMPLE_CONFIG_FILENAME
-    if not example_path.is_file():
-        raise ConfigError(f"Bundled example config not found at {example_path}")
+    try:
+        template = read_bundled_data(EXAMPLE_CONFIG_FILENAME)
+    except (FileNotFoundError, OSError) as exc:
+        raise ConfigError(f"Bundled example config not found: {exc}") from exc
 
     dest_path.parent.mkdir(parents=True, exist_ok=True)
-    dest_path.write_text(example_path.read_text(encoding="utf-8"), encoding="utf-8")
+    dest_path.write_text(template, encoding="utf-8")
     return dest_path

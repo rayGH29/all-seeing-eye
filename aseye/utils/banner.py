@@ -5,11 +5,12 @@ from __future__ import annotations
 from pathlib import Path
 
 from aseye import __version__
+from aseye.config import USER_DATA_DIR, read_bundled_data
 from aseye.utils.logging import console
 
 _ART_FILENAME = "ascii-eye.txt"
 
-# Used only if ascii-eye.txt can't be found (e.g. an installed copy without it).
+# Used only if the art can't be found at all.
 _FALLBACK = r"""
       ___________
     /             \
@@ -22,17 +23,25 @@ _FALLBACK = r"""
 
 
 def _load_art() -> str:
-    """Read the eye art from ascii-eye.txt, searching the repo root and CWD."""
+    """Load the eye art: user override first, then the packaged default.
+
+    A user can customize the banner by dropping an ``ascii-eye.txt`` in
+    ``~/.all-seeing-eye/`` or the current directory; otherwise the copy bundled
+    with the package (works on any install type) is used.
+    """
     for candidate in (
-        Path(__file__).resolve().parents[2] / _ART_FILENAME,  # repo root (running from source)
-        Path.cwd() / _ART_FILENAME,
+        Path(USER_DATA_DIR) / _ART_FILENAME,   # user override
+        Path.cwd() / _ART_FILENAME,            # e.g. the repo root when run from source
     ):
         try:
             if candidate.is_file():
                 return _trim_blank_lines(candidate.read_text(encoding="utf-8"))
         except OSError:
             pass
-    return _trim_blank_lines(_FALLBACK)
+    try:
+        return _trim_blank_lines(read_bundled_data(_ART_FILENAME))
+    except (FileNotFoundError, OSError):
+        return _trim_blank_lines(_FALLBACK)
 
 
 def _trim_blank_lines(text: str) -> str:

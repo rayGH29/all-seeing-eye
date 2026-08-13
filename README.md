@@ -597,12 +597,17 @@ aseye/                 main package
 │   └── report.py       merge results, render JSON/Markdown
 ├── llm/               local LLM abstraction (Ollama) + prompts
 ├── builtin_plugins/   plugins bundled with the tool (installed everywhere)
+├── data/              packaged data: config.example.yaml, ascii-eye.txt
 └── utils/             banner, logging, target classification
+~/.all-seeing-eye/           user home: config.yaml, plugins/, reports/, history
 ~/.all-seeing-eye/plugins/   your own drop-in plugins (auto-created)
-ascii-eye.txt          the banner art (edit freely; loaded at runtime)
-reports/               generated reports (gitignored)
-config.example.yaml    template copied by `aseye config init`
+~/.all-seeing-eye/ascii-eye.txt   optional: your own banner art (overrides the default)
 ```
+
+The config template and banner art ship **inside the package** (`aseye/data/`),
+so `aseye config init` and the banner work on every install type. To customize
+the banner, drop an `ascii-eye.txt` in `~/.all-seeing-eye/` (or the current
+directory).
 
 ---
 
