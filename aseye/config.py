@@ -59,6 +59,16 @@ class PluginsConfig(BaseModel):
     settings: Dict[str, Dict[str, Any]] = Field(default_factory=dict)
 
 
+class PivotConfig(BaseModel):
+    """Auto-pivot: after a run, follow strongly-linked identifiers of the
+    OPPOSITE kind (email -> username, username -> email) through that kind's
+    tools, in a second pass."""
+
+    enabled: bool = True
+    min_sources: int = 1     # min distinct plugins that must link the identifier
+    max_targets: int = 3     # cap how many pivots a run may spawn
+
+
 class OutputConfig(BaseModel):
     dir: str = DEFAULT_REPORTS_DIR
     format: str = "both"  # json | md | both
@@ -74,6 +84,7 @@ class Config(BaseModel):
     plugins: PluginsConfig = Field(default_factory=PluginsConfig)
     output: OutputConfig = Field(default_factory=OutputConfig)
     concurrency: ConcurrencyConfig = Field(default_factory=ConcurrencyConfig)
+    pivot: PivotConfig = Field(default_factory=PivotConfig)
 
     # Absolute path this config was loaded from (None if using pure defaults).
     source_path: Optional[str] = None

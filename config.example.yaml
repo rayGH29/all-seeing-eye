@@ -66,3 +66,13 @@ concurrency:
   max_workers: 8
   # Per-plugin time budget in seconds (see note above).
   timeout: 120
+
+pivot:
+  # After a run, automatically follow strongly-linked identifiers of the
+  # OPPOSITE kind (email -> username, username -> email) through that kind's
+  # tools, in a second pass. Disable per-run with `--no-pivot`.
+  enabled: true
+  # Minimum number of distinct plugins that must link the identifier to pivot.
+  min_sources: 1
+  # Cap how many pivots a single run may spawn.
+  max_targets: 3

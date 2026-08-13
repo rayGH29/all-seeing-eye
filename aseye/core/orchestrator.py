@@ -9,11 +9,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable, Dict, List, Optional, Sequence
 
-from aseye.config import Config
+from aseye.config import Config, PivotConfig
 from aseye.core import registry, report as report_mod, resolve
 from aseye.core.plugin_base import BasePlugin
 from aseye.llm import factory as llm_factory
-from aseye.models import PluginResult, PluginStatus, Report, RunMode, Target
+from aseye.models import PivotReport, PluginResult, PluginStatus, Report, RunMode, Target
 from aseye.utils.logging import console, get_logger
 from aseye.utils.validators import classify_target
 
@@ -87,6 +87,7 @@ def run(
     use_llm: bool = True,
     output_format: Optional[str] = None,
     show_progress: bool = False,
+    pivot: bool = True,
 ) -> RunOutcome:
     """Run the full OSINT pipeline for ``target_value`` and persist the report."""
     target = classify_target(target_value)
@@ -101,6 +102,10 @@ def run(
     merged = report_mod.build_report(target, mode, results)
     merged.correlation = resolve.resolve_identities(merged)
 
+    if pivot and config.pivot.enabled:
+        _run_pivots(merged, discovered, mode, config, only, show_progress)
+        merged.correlation = resolve.resolve_identities(merged)  # recompute incl. pivots
+
     if use_llm and config.llm.enabled:
         _attach_insights(merged, config)
     elif use_llm and not config.llm.enabled:
@@ -109,6 +114,59 @@ def run(
     fmt = output_format or config.output.format
     written = report_mod.write_report(merged, config.output.dir, fmt)
     return RunOutcome(merged, written)
+
+
+def _run_pivots(
+    report: Report,
+    discovered: List[BasePlugin],
+    mode: RunMode,
+    config: Config,
+    only: Optional[Sequence[str]],
+    show_progress: bool,
+) -> None:
+    """Follow strongly-linked opposite-kind identifiers through their tools."""
+    for value, kind in _pivot_targets(report.target, report.correlation or {}, config.pivot):
+        pivot_target = Target(value=value, kind=kind)
+        plugins = select_plugins(discovered, pivot_target, only)
+        if not plugins:
+            continue
+        log.info("Pivoting to %s '%s' (%d plugin(s)).", kind, value, len(plugins))
+        results = _run_with_progress(plugins, pivot_target, mode, config, show_progress)
+        report.pivots.append(PivotReport(target=value, kind=kind, results=results))
+
+
+def _pivot_targets(target: Target, correlation: dict, cfg: PivotConfig):
+    """Pick opposite-kind identifiers worth pivoting on (value, kind) pairs."""
+    if target.kind == "email":
+        pool, kind = correlation.get("usernames", []), "username"
+    elif target.kind == "username":
+        pool, kind = correlation.get("emails", []), "email"
+    else:
+        return []
+
+    chosen = []
+    seen = {target.value.lower()}
+    for item in pool:
+        value = item["value"]
+        real_sources = [s for s in item.get("sources", []) if s != "target"]
+        if len(real_sources) < cfg.min_sources:
+            continue
+        if not _valid_pivot(value, kind) or value.lower() in seen:
+            continue
+        seen.add(value.lower())
+        chosen.append((value, kind))
+        if len(chosen) >= cfg.max_targets:
+            break
+    return chosen
+
+
+def _valid_pivot(value: str, kind: str) -> bool:
+    """Reject obfuscated/placeholder values that aren't worth a real second pass."""
+    if "*" in value or " " in value:
+        return False
+    if kind == "email":
+        return "@" in value and "noreply" not in value.lower()
+    return "@" not in value and 1 <= len(value) <= 40
 
 
 def _run_with_progress(

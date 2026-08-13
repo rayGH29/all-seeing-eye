@@ -93,7 +93,7 @@ def resolve_identities(report: Report) -> Dict[str, Any]:
     elif report.target.kind == "username":
         add(usernames, report.target.value, "target")
 
-    for result in report.results:
+    for result in report.all_results():
         source = result.plugin
 
         def sink(key: str, value: Any) -> None:

@@ -65,6 +65,14 @@ class PluginResult(BaseModel):
         return (self.finished_at - self.started_at).total_seconds()
 
 
+class PivotReport(BaseModel):
+    """Results of a second-pass run on an identifier linked to the main target."""
+
+    target: str
+    kind: TargetKind
+    results: List[PluginResult] = Field(default_factory=list)
+
+
 class Report(BaseModel):
     """The merged, cross-plugin picture of a target, plus optional LLM insights."""
 
@@ -72,8 +80,16 @@ class Report(BaseModel):
     mode: RunMode
     generated_at: datetime = Field(default_factory=_utcnow)
     results: List[PluginResult] = Field(default_factory=list)
+    pivots: List["PivotReport"] = Field(default_factory=list)  # auto-pivot passes
     correlation: Optional[Dict[str, Any]] = None  # entity-resolution output
     insights: Optional[str] = None
+
+    def all_results(self) -> List[PluginResult]:
+        """Main results plus every pivot's results, flattened."""
+        out = list(self.results)
+        for pivot in self.pivots:
+            out.extend(pivot.results)
+        return out
 
     # ---- serialization helpers -------------------------------------------------
 
@@ -125,18 +141,28 @@ class Report(BaseModel):
 
         lines.append("## Plugin Results")
         lines.append("")
-        for res in self.results:
-            lines.append(f"### {res.plugin} — {res.status.value}")
-            if res.duration_seconds is not None:
-                lines.append(f"_ran in {res.duration_seconds:.2f}s_")
+        _render_results(lines, self.results)
+
+        for pivot in self.pivots:
+            lines.append(f"## Pivot → `{pivot.target}` ({pivot.kind})")
             lines.append("")
-            if res.error:
-                lines.append(f"> **Error:** {res.error}")
-                lines.append("")
-            if res.data:
-                lines.append("```json")
-                lines.append(json.dumps(res.data, indent=2, default=str))
-                lines.append("```")
-            lines.append("")
+            _render_results(lines, pivot.results)
 
         return "\n".join(lines)
+
+
+def _render_results(lines: List[str], results: List[PluginResult]) -> None:
+    """Append a Markdown block for each plugin result to ``lines``."""
+    for res in results:
+        lines.append(f"### {res.plugin} — {res.status.value}")
+        if res.duration_seconds is not None:
+            lines.append(f"_ran in {res.duration_seconds:.2f}s_")
+        lines.append("")
+        if res.error:
+            lines.append(f"> **Error:** {res.error}")
+            lines.append("")
+        if res.data:
+            lines.append("```json")
+            lines.append(json.dumps(res.data, indent=2, default=str))
+            lines.append("```")
+        lines.append("")

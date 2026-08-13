@@ -114,6 +114,7 @@ def _execute(
     no_llm: bool,
     output: Optional[str],
     fmt: Optional[str],
+    no_pivot: bool = False,
 ) -> None:
     """Shared body for the one-shot `run` and `deep-research` commands."""
     print_banner()
@@ -134,6 +135,7 @@ def _execute(
             only=_parse_plugins_option(plugins),
             use_llm=not no_llm,
             output_format=fmt,
+            pivot=not no_pivot,
         )
     except AseyeError as exc:
         console.print(f"[red]Error:[/red] {exc}")
@@ -151,6 +153,7 @@ def run_target(
     use_llm: bool = True,
     output_format: Optional[str] = None,
     show_progress: bool = True,
+    pivot: bool = True,
 ) -> orchestrator.RunOutcome:
     """Banner-free, no-exit run used by both the CLI and the interactive shell.
 
@@ -164,6 +167,7 @@ def run_target(
         use_llm=use_llm,
         output_format=output_format,
         show_progress=show_progress,
+        pivot=pivot,
     )
 
 
@@ -190,6 +194,13 @@ def _print_summary(outcome: orchestrator.RunOutcome, config: Config) -> None:
     if not report.results:
         console.print("[yellow]No plugins ran for this target.[/yellow]")
 
+    for pivot in report.pivots:
+        ok = sum(1 for r in pivot.results if r.status == PluginStatus.SUCCESS)
+        console.print(
+            f"[magenta]↳ pivot[/magenta] {pivot.kind} [bold]{pivot.target}[/bold] "
+            f"— {ok}/{len(pivot.results)} plugin(s) succeeded"
+        )
+
     if report.insights:
         console.print(Panel(report.insights, title="AI Insights", border_style="magenta"))
 
@@ -205,9 +216,10 @@ def run(
     no_llm: bool = typer.Option(False, "--no-llm", help="Skip the LLM insights step."),
     output: Optional[str] = typer.Option(None, "--output", "-o", help="Output directory override."),
     fmt: Optional[str] = typer.Option(None, "--format", "-f", help="Report format: json | md | both."),
+    no_pivot: bool = typer.Option(False, "--no-pivot", help="Don't auto-pivot to linked identifiers."),
 ) -> None:
     """Run a normal OSINT sweep of TARGET."""
-    _execute(target, RunMode.NORMAL, config_path, plugins, no_llm, output, fmt)
+    _execute(target, RunMode.NORMAL, config_path, plugins, no_llm, output, fmt, no_pivot)
 
 
 @app.command(name="deep-research")
@@ -218,9 +230,10 @@ def deep_research(
     no_llm: bool = typer.Option(False, "--no-llm", help="Skip the LLM insights step."),
     output: Optional[str] = typer.Option(None, "--output", "-o", help="Output directory override."),
     fmt: Optional[str] = typer.Option(None, "--format", "-f", help="Report format: json | md | both."),
+    no_pivot: bool = typer.Option(False, "--no-pivot", help="Don't auto-pivot to linked identifiers."),
 ) -> None:
     """Run every plugin at its MAXIMUM settings (deep research mode)."""
-    _execute(target, RunMode.DEEP, config_path, plugins, no_llm, output, fmt)
+    _execute(target, RunMode.DEEP, config_path, plugins, no_llm, output, fmt, no_pivot)
 
 
 def _tool_ready(tool: Optional[str]) -> Optional[bool]:
