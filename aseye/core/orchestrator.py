@@ -2,17 +2,19 @@
 
 from __future__ import annotations
 
-from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
+import math
+import threading
+import time
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import List, Optional, Sequence
+from typing import Callable, Dict, List, Optional, Sequence
 
-from aseye.config import Config
-from aseye.core import registry, report as report_mod
+from aseye.config import Config, PivotConfig
+from aseye.core import registry, report as report_mod, resolve
 from aseye.core.plugin_base import BasePlugin
 from aseye.llm import factory as llm_factory
-from aseye.models import PluginResult, PluginStatus, Report, RunMode, Target
-from aseye.utils.logging import get_logger
+from aseye.models import PivotReport, PluginResult, PluginStatus, Report, RunMode, Target
+from aseye.utils.logging import console, get_logger
 from aseye.utils.validators import classify_target
 
 log = get_logger(__name__)
@@ -84,6 +86,8 @@ def run(
     only: Optional[Sequence[str]] = None,
     use_llm: bool = True,
     output_format: Optional[str] = None,
+    show_progress: bool = False,
+    pivot: bool = True,
 ) -> RunOutcome:
     """Run the full OSINT pipeline for ``target_value`` and persist the report."""
     target = classify_target(target_value)
@@ -93,9 +97,14 @@ def run(
     to_run = select_plugins(discovered, target, only)
     log.info("Running %d plugin(s) in %s mode.", len(to_run), mode.value)
 
-    results = _run_plugins_concurrently(to_run, target, mode, config)
+    results = _run_with_progress(to_run, target, mode, config, show_progress)
 
     merged = report_mod.build_report(target, mode, results)
+    merged.correlation = resolve.resolve_identities(merged)
+
+    if pivot and config.pivot.enabled:
+        _run_pivots(merged, discovered, mode, config, only, show_progress)
+        merged.correlation = resolve.resolve_identities(merged)  # recompute incl. pivots
 
     if use_llm and config.llm.enabled:
         _attach_insights(merged, config)
@@ -107,59 +116,161 @@ def run(
     return RunOutcome(merged, written)
 
 
+def _run_pivots(
+    report: Report,
+    discovered: List[BasePlugin],
+    mode: RunMode,
+    config: Config,
+    only: Optional[Sequence[str]],
+    show_progress: bool,
+) -> None:
+    """Follow strongly-linked opposite-kind identifiers through their tools."""
+    for value, kind in _pivot_targets(report.target, report.correlation or {}, config.pivot):
+        pivot_target = Target(value=value, kind=kind)
+        plugins = select_plugins(discovered, pivot_target, only)
+        if not plugins:
+            continue
+        log.info("Pivoting to %s '%s' (%d plugin(s)).", kind, value, len(plugins))
+        results = _run_with_progress(plugins, pivot_target, mode, config, show_progress)
+        report.pivots.append(PivotReport(target=value, kind=kind, results=results))
+
+
+def _pivot_targets(target: Target, correlation: dict, cfg: PivotConfig):
+    """Pick opposite-kind identifiers worth pivoting on (value, kind) pairs."""
+    if target.kind == "email":
+        pool, kind = correlation.get("usernames", []), "username"
+    elif target.kind == "username":
+        pool, kind = correlation.get("emails", []), "email"
+    else:
+        return []
+
+    chosen = []
+    seen = {target.value.lower()}
+    for item in pool:
+        value = item["value"]
+        real_sources = [s for s in item.get("sources", []) if s != "target"]
+        if len(real_sources) < cfg.min_sources:
+            continue
+        if not _valid_pivot(value, kind) or value.lower() in seen:
+            continue
+        seen.add(value.lower())
+        chosen.append((value, kind))
+        if len(chosen) >= cfg.max_targets:
+            break
+    return chosen
+
+
+def _valid_pivot(value: str, kind: str) -> bool:
+    """Reject obfuscated/placeholder values that aren't worth a real second pass."""
+    if "*" in value or " " in value:
+        return False
+    if kind == "email":
+        return "@" in value and "noreply" not in value.lower()
+    return "@" not in value and 1 <= len(value) <= 40
+
+
+def _run_with_progress(
+    plugins: List[BasePlugin],
+    target: Target,
+    mode: RunMode,
+    config: Config,
+    show_progress: bool,
+) -> List[PluginResult]:
+    """Run the plugins, optionally showing a live progress bar."""
+    if not (show_progress and plugins and console.is_terminal):
+        return _run_plugins_concurrently(plugins, target, mode, config)
+
+    from rich.progress import (
+        BarColumn,
+        MofNCompleteColumn,
+        Progress,
+        SpinnerColumn,
+        TextColumn,
+        TimeElapsedColumn,
+    )
+
+    with Progress(
+        SpinnerColumn(),
+        TextColumn("[progress.description]{task.description}"),
+        BarColumn(),
+        MofNCompleteColumn(),
+        TimeElapsedColumn(),
+        console=console,
+        transient=True,
+    ) as progress:
+        task = progress.add_task(f"Running plugins ({mode.value})", total=len(plugins))
+        return _run_plugins_concurrently(
+            plugins, target, mode, config, on_complete=lambda: progress.advance(task)
+        )
+
+
 def _run_plugins_concurrently(
     plugins: List[BasePlugin],
     target: Target,
     mode: RunMode,
     config: Config,
+    on_complete: Optional[Callable[[], None]] = None,
 ) -> List[PluginResult]:
-    """Run plugins in a thread pool with a per-plugin timeout."""
+    """Run plugins concurrently under a hard overall time budget.
+
+    Each plugin runs in its own **daemon** thread, capped to ``max_workers``
+    concurrent by a semaphore. The whole run is bounded by a single deadline
+    (``timeout`` per plugin, scaled by the number of concurrency batches) rather
+    than a resettable per-wait window. A plugin that ignores its own timeouts is
+    marked TIMEOUT and abandoned — because the threads are daemons, a stuck
+    plugin can never wedge process exit.
+    """
     if not plugins:
         return []
 
-    timeout = config.concurrency.timeout
+    per_plugin_timeout = config.concurrency.timeout
     max_workers = max(1, config.concurrency.max_workers)
-    results: List[PluginResult] = []
+    batches = math.ceil(len(plugins) / max_workers)
+    budget = per_plugin_timeout * batches
+    deadline = time.monotonic() + budget
 
-    with ThreadPoolExecutor(max_workers=max_workers) as pool:
-        future_to_plugin = {
-            pool.submit(
-                _run_one_plugin,
-                plugin,
-                target,
-                mode,
-                config.plugins.settings.get(plugin.name, {}),
-            ): plugin
-            for plugin in plugins
-        }
-        pending = set(future_to_plugin)
-        deadline_reached = False
-        while pending and not deadline_reached:
-            done, pending = wait(pending, timeout=timeout, return_when=FIRST_COMPLETED)
-            if not done:
-                # Nothing completed within the timeout window -> mark stragglers.
-                deadline_reached = True
-                break
-            for fut in done:
-                results.append(fut.result())
+    semaphore = threading.BoundedSemaphore(max_workers)
+    results_by_name: Dict[str, PluginResult] = {}
+    lock = threading.Lock()
 
-        for fut in pending:
-            plugin = future_to_plugin[fut]
-            fut.cancel()
-            log.warning("Plugin '%s' timed out after %ss.", plugin.name, timeout)
-            results.append(
-                PluginResult(
-                    plugin=plugin.name,
-                    status=PluginStatus.TIMEOUT,
-                    mode=mode,
-                    error=f"Timed out after {timeout}s.",
-                    finished_at=datetime.now(timezone.utc),
-                )
+    def _worker(plugin: BasePlugin) -> None:
+        if not semaphore.acquire(timeout=max(0.0, deadline - time.monotonic())):
+            return  # never got a slot before the deadline; main loop marks it timed out
+        try:
+            result = _run_one_plugin(
+                plugin, target, mode, config.plugins.settings.get(plugin.name, {})
             )
+        finally:
+            semaphore.release()
+        with lock:
+            results_by_name[plugin.name] = result
 
-    # Preserve the input plugin order for stable, readable reports.
-    order = {p.name: i for i, p in enumerate(plugins)}
-    results.sort(key=lambda r: order.get(r.plugin, 0))
+    threads = []
+    for plugin in plugins:
+        thread = threading.Thread(
+            target=_worker, args=(plugin,), name=f"aseye-{plugin.name}", daemon=True
+        )
+        thread.start()
+        threads.append((plugin, thread))
+
+    results: List[PluginResult] = []
+    for plugin, thread in threads:  # plugins order -> stable, readable reports
+        thread.join(timeout=max(0.0, deadline - time.monotonic()))
+        with lock:
+            result = results_by_name.get(plugin.name)
+        if result is None:
+            log.warning("Plugin '%s' exceeded the run budget of %ss.", plugin.name, budget)
+            result = PluginResult(
+                plugin=plugin.name,
+                status=PluginStatus.TIMEOUT,
+                mode=mode,
+                error=f"Timed out (run budget {budget:.0f}s).",
+                finished_at=datetime.now(timezone.utc),
+            )
+        results.append(result)
+        if on_complete is not None:
+            on_complete()
+
     return results
 
 

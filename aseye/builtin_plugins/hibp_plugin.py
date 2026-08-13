@@ -38,6 +38,8 @@ class HibpPlugin(BasePlugin):
     description = "Check an email against Have I Been Pwned breaches (and pastes in deep mode)."
     author = "all-seeing-eye"
     supported_targets = {"email"}  # HIBP account lookups are keyed by email.
+    requires_key_env = "HIBP_API_KEY"
+    requires_key_setting = "api_key"
 
     default_settings = {
         "api_key": "",             # falls back to $HIBP_API_KEY
@@ -46,6 +48,7 @@ class HibpPlugin(BasePlugin):
         "include_unverified": False,
         "timeout": 30,             # per-request timeout (seconds)
         "max_retries": 3,          # retries on rate-limit / transient errors
+        "rate_limit": 1.6,         # min seconds between HIBP requests (be polite)
     }
     deep_settings = {
         "truncate": False,         # full breach detail
@@ -69,6 +72,7 @@ class HibpPlugin(BasePlugin):
         include_pastes = bool(settings.get("include_pastes", False))
         timeout = float(settings.get("timeout", 30))
         max_retries = int(settings.get("max_retries", 3))
+        rate_limit = float(settings.get("rate_limit", 1.6))
 
         account = quote(target.value, safe="")
         headers = {"hibp-api-key": api_key, "user-agent": _USER_AGENT}
@@ -83,6 +87,7 @@ class HibpPlugin(BasePlugin):
                     "includeUnverified": "true" if include_unverified else "false",
                 },
                 max_retries=max_retries,
+                rate_limit=rate_limit,
             )
             breaches = [self._normalize_breach(b, truncate) for b in (breaches_raw or [])]
             result["breach_count"] = len(breaches)
@@ -94,6 +99,7 @@ class HibpPlugin(BasePlugin):
                     f"pasteaccount/{account}",
                     params=None,
                     max_retries=max_retries,
+                    rate_limit=rate_limit,
                 )
                 pastes = [self._normalize_paste(p) for p in (pastes_raw or [])]
                 result["paste_count"] = len(pastes)
@@ -109,6 +115,7 @@ class HibpPlugin(BasePlugin):
         path: str,
         params: Optional[Dict[str, str]],
         max_retries: int,
+        rate_limit: float = 0.0,
     ) -> Optional[List[Dict[str, Any]]]:
         """GET an HIBP account endpoint, handling HIBP's status-code semantics.
 
@@ -119,6 +126,7 @@ class HibpPlugin(BasePlugin):
         url = f"{_API_BASE}/{path}"
         attempt = 0
         while True:
+            self.throttle("hibp", rate_limit)
             try:
                 resp = client.get(url, params=params)
             except httpx.TransportError as exc:

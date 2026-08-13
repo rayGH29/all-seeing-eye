@@ -22,12 +22,18 @@ DEFAULT_CONFIG_FILENAME = "config.yaml"
 EXAMPLE_CONFIG_FILENAME = "config.example.yaml"
 
 # Per-user data directory for all-seeing-eye. One home for user state
-# (plugins, shell history, …) so features don't each invent their own path.
+# (config, plugins, reports, shell history, …) so features don't each invent
+# their own path — and everything works the same from any directory.
 USER_DATA_DIR = Path.home() / ".all-seeing-eye"
 
 # User drop-in plugins folder, searched in addition to the bundled plugins.
 # Auto-created on first discovery. Drop your own `*.py` plugins here.
 USER_PLUGINS_DIR = str(USER_DATA_DIR / "plugins")
+
+# Global config file and default reports dir, so the tool behaves identically
+# from any working directory (a config.yaml in the CWD still takes precedence).
+GLOBAL_CONFIG_PATH = USER_DATA_DIR / DEFAULT_CONFIG_FILENAME
+DEFAULT_REPORTS_DIR = str(USER_DATA_DIR / "reports")
 
 
 class LLMConfig(BaseModel):
@@ -53,8 +59,18 @@ class PluginsConfig(BaseModel):
     settings: Dict[str, Dict[str, Any]] = Field(default_factory=dict)
 
 
+class PivotConfig(BaseModel):
+    """Auto-pivot: after a run, follow strongly-linked identifiers of the
+    OPPOSITE kind (email -> username, username -> email) through that kind's
+    tools, in a second pass."""
+
+    enabled: bool = True
+    min_sources: int = 1     # min distinct plugins that must link the identifier
+    max_targets: int = 3     # cap how many pivots a run may spawn
+
+
 class OutputConfig(BaseModel):
-    dir: str = "reports"
+    dir: str = DEFAULT_REPORTS_DIR
     format: str = "both"  # json | md | both
 
 
@@ -68,6 +84,7 @@ class Config(BaseModel):
     plugins: PluginsConfig = Field(default_factory=PluginsConfig)
     output: OutputConfig = Field(default_factory=OutputConfig)
     concurrency: ConcurrencyConfig = Field(default_factory=ConcurrencyConfig)
+    pivot: PivotConfig = Field(default_factory=PivotConfig)
 
     # Absolute path this config was loaded from (None if using pure defaults).
     source_path: Optional[str] = None
@@ -79,8 +96,12 @@ def _find_config_file(explicit: Optional[str]) -> Optional[Path]:
         if not p.is_file():
             raise ConfigError(f"Config file not found: {p}")
         return p
-    candidate = Path.cwd() / DEFAULT_CONFIG_FILENAME
-    return candidate if candidate.is_file() else None
+    # A config.yaml in the current directory wins (project-local override);
+    # otherwise fall back to the global ~/.all-seeing-eye/config.yaml.
+    for candidate in (Path.cwd() / DEFAULT_CONFIG_FILENAME, GLOBAL_CONFIG_PATH):
+        if candidate.is_file():
+            return candidate
+    return None
 
 
 def load_config(path: Optional[str] = None) -> Config:
@@ -115,7 +136,8 @@ def save_config(config: "Config", path: Optional[str] = None) -> Path:
 
     Used by the interactive shell to persist plugin on/off toggles.
     """
-    dest = Path(path or config.source_path or DEFAULT_CONFIG_FILENAME).expanduser()
+    dest = Path(path or config.source_path or GLOBAL_CONFIG_PATH).expanduser()
+    dest.parent.mkdir(parents=True, exist_ok=True)
     data = config.model_dump(exclude={"source_path"})
     dest.write_text(yaml.safe_dump(data, sort_keys=False), encoding="utf-8")
     config.source_path = str(dest)
@@ -128,7 +150,7 @@ def init_config(dest: Optional[str] = None, *, force: bool = False) -> Path:
     Returns the path written. Raises ConfigError if it already exists and
     ``force`` is False.
     """
-    dest_path = Path(dest or DEFAULT_CONFIG_FILENAME).expanduser()
+    dest_path = Path(dest).expanduser() if dest else GLOBAL_CONFIG_PATH
     if dest_path.exists() and not force:
         raise ConfigError(f"{dest_path} already exists (use --force to overwrite).")
 
@@ -136,5 +158,6 @@ def init_config(dest: Optional[str] = None, *, force: bool = False) -> Path:
     if not example_path.is_file():
         raise ConfigError(f"Bundled example config not found at {example_path}")
 
+    dest_path.parent.mkdir(parents=True, exist_ok=True)
     dest_path.write_text(example_path.read_text(encoding="utf-8"), encoding="utf-8")
     return dest_path

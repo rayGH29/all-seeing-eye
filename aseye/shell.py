@@ -29,11 +29,13 @@ from aseye.utils.logging import console
 _HISTORY_FILE = USER_DATA_DIR / "history"
 
 _HELP = [
-    ("run <target> [opts]", "Run a normal sweep (opts: --no-llm, -p a,b, -o dir, -f json|md|both)"),
+    ("run <target> [opts]", "Run a normal sweep (opts: --no-llm, --no-pivot, -p a,b, -o dir, -f)"),
     ("deep-research <target>", "Run every plugin at its MAXIMUM settings (alias: deep)"),
     ("plugins", "List plugins with ON/OFF status"),
     ("plugins on|off <name>", "Enable/disable a plugin (persisted to config.yaml)"),
     ("plugins info <name>", "Show a plugin's normal vs deep settings"),
+    ("plugins new <name>", "Scaffold a starter plugin in your user folder"),
+    ("doctor", "Check readiness: plugins, tools, keys, and the LLM"),
     ("config", "Show the effective configuration"),
     ("help", "Show this help"),
     ("clear", "Clear the screen"),
@@ -73,6 +75,10 @@ class AseyeShell:
             self._cmd_run(args, RunMode.DEEP)
         elif cmd == "plugins":
             self._cmd_plugins(args)
+        elif cmd == "doctor":
+            from aseye.cli import render_doctor
+
+            render_doctor(self.config)
         elif cmd == "config":
             self._cmd_config()
         else:
@@ -83,7 +89,7 @@ class AseyeShell:
 
     def _cmd_run(self, args: List[str], mode: RunMode) -> None:
         try:
-            target, only, no_llm, output, fmt = _parse_run_args(args)
+            target, only, no_llm, output, fmt, no_pivot = _parse_run_args(args)
         except ValueError as exc:
             console.print(f"[red]{exc}[/red]")
             return
@@ -97,7 +103,8 @@ class AseyeShell:
         console.print(f"[dim]{label}[/dim] [bold]{target}[/bold] …")
         try:
             outcome = run_target(
-                self.config, target, mode, only=only, use_llm=not no_llm, output_format=fmt
+                self.config, target, mode, only=only, use_llm=not no_llm,
+                output_format=fmt, pivot=not no_pivot,
             )
             _print_summary(outcome, self.config)
         except AseyeError as exc:
@@ -114,6 +121,18 @@ class AseyeShell:
             self._plugins_list()
             return
         sub = args[0].lower()
+        if sub == "new":
+            if len(args) < 2:
+                console.print("[red]usage:[/red] plugins new <name>")
+                return
+            from aseye.cli import scaffold_plugin
+
+            try:
+                dest, slug = scaffold_plugin(args[1])
+                console.print(f"[green]Created[/green] {dest}  (name: {slug})")
+            except AseyeError as exc:
+                console.print(f"[red]{exc}[/red]")
+            return
         if sub in ("on", "off", "info"):
             if len(args) < 2:
                 console.print(f"[red]usage:[/red] plugins {sub} <name>")
@@ -223,12 +242,15 @@ class AseyeShell:
         console.print(table)
 
 
-def _parse_run_args(args: List[str]) -> Tuple[str, Optional[List[str]], bool, Optional[str], Optional[str]]:
+def _parse_run_args(
+    args: List[str],
+) -> Tuple[str, Optional[List[str]], bool, Optional[str], Optional[str], bool]:
     """Parse `run`/`deep-research` arguments. Raises ValueError with usage."""
-    usage = "usage: run <target> [--no-llm] [-p a,b] [-o dir] [-f json|md|both]"
+    usage = "usage: run <target> [--no-llm] [--no-pivot] [-p a,b] [-o dir] [-f json|md|both]"
     target: Optional[str] = None
     only: Optional[List[str]] = None
     no_llm = False
+    no_pivot = False
     output: Optional[str] = None
     fmt: Optional[str] = None
 
@@ -237,6 +259,8 @@ def _parse_run_args(args: List[str]) -> Tuple[str, Optional[List[str]], bool, Op
         a = args[i]
         if a == "--no-llm":
             no_llm = True
+        elif a == "--no-pivot":
+            no_pivot = True
         elif a in ("-p", "--plugins", "-o", "--output", "-f", "--format"):
             if i + 1 >= len(args):
                 raise ValueError(f"{a} needs a value. {usage}")
@@ -258,7 +282,7 @@ def _parse_run_args(args: List[str]) -> Tuple[str, Optional[List[str]], bool, Op
 
     if not target:
         raise ValueError(usage)
-    return target, only, no_llm, output, fmt
+    return target, only, no_llm, output, fmt, no_pivot
 
 
 def run_shell(*, verbose: bool = False) -> None:
@@ -285,7 +309,14 @@ def run_shell(*, verbose: bool = False) -> None:
             "run": None,
             "deep-research": None,
             "deep": None,
-            "plugins": {"list": None, "on": plugin_names, "off": plugin_names, "info": plugin_names},
+            "plugins": {
+                "list": None,
+                "on": plugin_names,
+                "off": plugin_names,
+                "info": plugin_names,
+                "new": None,
+            },
+            "doctor": None,
             "config": None,
             "help": None,
             "clear": None,

@@ -35,6 +35,7 @@ class HolehePlugin(BasePlugin):
     description = "Check which sites an email is registered on via Holehe."
     author = "all-seeing-eye"
     supported_targets = {"email"}
+    requires_tool = "holehe"
 
     default_settings = {
         "request_timeout": 10,     # Holehe -T (per-site timeout)

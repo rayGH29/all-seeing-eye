@@ -182,11 +182,13 @@ aseye > exit
 
 | Command | Description |
 |---|---|
-| `run <target> [opts]` | Normal sweep. Opts: `--no-llm`, `-p a,b`, `-o dir`, `-f json\|md\|both` |
+| `run <target> [opts]` | Normal sweep. Opts: `--no-llm`, `--no-pivot`, `-p a,b`, `-o dir`, `-f json\|md\|both` |
 | `deep-research <target>` | Every plugin at maximum settings (alias: `deep`) |
 | `plugins` | List all plugins with ON/OFF status |
 | `plugins on\|off <name\|#>` | Toggle a plugin (persisted to `config.yaml`) |
 | `plugins info <name>` | Show a plugin's normal vs deep settings side by side |
+| `plugins new <name>` | Scaffold a starter plugin in your user folder |
+| `doctor` | Check readiness: plugins, external tools, keys, and the LLM |
 | `config` | Print the effective configuration |
 | `help` | Show the command list |
 | `clear` | Clear the screen |
@@ -204,12 +206,18 @@ Every action is also a normal command for scripting/automation:
 ```bash
 aseye run <target> [OPTIONS]
 aseye deep-research <target> [OPTIONS]
+aseye doctor                 # readiness: plugins, tools, keys, LLM
 aseye plugins list
-aseye config init            # write config.yaml from the template
+aseye plugins new <name>     # scaffold a starter plugin
+aseye config init            # write the global config.yaml from the template
 aseye config show            # print the effective config
 aseye --version
 aseye --help
 ```
+
+Run **`aseye doctor`** first to see which plugins are ready and which need a tool
+installed or a key set — it also checks whether your local LLM (Ollama) is
+reachable and the model is pulled.
 
 **`run` / `deep-research` options:**
 
@@ -250,11 +258,19 @@ only runs plugins that support it.
 | `example` | username, email | no | built in (sample data) |
 | `sherlock` | username | no | `pip install sherlock-project` |
 | `maigret` | username | no | `pip install maigret` |
+| `whatsmyname` | username | no | built in (HTTP only) |
 | `socialscan` | username, email | no | `pip install socialscan` |
 | `holehe` | email | no | `pip install holehe` |
 | `gravatar` | email | no | built in (HTTP only) |
+| `github` | username **and** email | no (optional `GITHUB_TOKEN`) | built in (HTTP only) |
 | `toutatis` | username (Instagram) | **yes** — `TOUTATIS_SESSIONID` | `pip install toutatis` |
 | `hibp` | email | **yes** — `HIBP_API_KEY` | built in (HTTP only) |
+| `hunter` | email | **yes** — `HUNTER_API_KEY` | built in (HTTP only) |
+
+The **`github`** plugin is the strongest username↔email bridge: a username →
+its public commit emails, an email → the usernames behind it. It works with no
+key (60 requests/hour); set `GITHUB_TOKEN` for 5000/hour. **`hunter`** verifies
+an email and (deep mode) finds related people at its domain.
 
 If a plugin's tool isn't installed or its key is missing, that plugin is recorded
 as a **failed result** and the rest of the run continues normally.
@@ -369,8 +385,10 @@ insights step fails gracefully with a note — the plugin data is still written.
 
 ## Configuration
 
-Create an editable config with `aseye config init` (writes `config.yaml` from the
-bundled template). `config.yaml` is gitignored. Key sections:
+Create an editable config with `aseye config init`. It writes a **global**
+`config.yaml` under `~/.all-seeing-eye/`, so your settings apply from any
+directory. (A `config.yaml` in your current folder still takes precedence — handy
+for project-local overrides.) Key sections:
 
 ```yaml
 llm:
@@ -392,20 +410,30 @@ plugins:
       sites: [GitHub, Reddit]
     toutatis:
       sessionid: ""       # prefer the TOUTATIS_SESSIONID env var
+      rate_limit: 2.0     # min seconds between requests to Instagram
     hibp:
       api_key: ""         # prefer the HIBP_API_KEY env var
+      rate_limit: 1.6     # min seconds between HIBP requests
 
 output:
-  dir: reports            # where reports are written
-  format: both            # json | md | both
+  dir: ~/.all-seeing-eye/reports   # default; override with -o or here
+  format: both                     # json | md | both
 
 concurrency:
-  max_workers: 8          # plugins run in parallel
-  timeout: 120            # per-plugin hard timeout (seconds)
+  max_workers: 8          # plugins run in parallel (daemon threads)
+  timeout: 120            # per-plugin time budget; run bounded by timeout x batches
+
+pivot:
+  enabled: true           # auto-follow linked opposite-kind identifiers
+  min_sources: 1          # min plugins that must link it before pivoting
+  max_targets: 3          # cap pivots per run
 ```
 
 - **Secrets** (`HIBP_API_KEY`, `TOUTATIS_SESSIONID`) are best set as environment
   variables; the env var always wins over the config file.
+- **Per-source rate limiting:** HTTP-based plugins (`hibp`, `toutatis`,
+  `gravatar`) accept a `rate_limit` (seconds) that spaces out their requests so
+  you don't get throttled or flagged — raise it if you hit rate limits.
 - Use a non-default config with `aseye run <target> -c path/to/config.yaml`.
 - Toggling plugins in the interactive app writes changes back to `config.yaml`.
 
@@ -413,7 +441,8 @@ concurrency:
 
 ## Reports
 
-Every run writes to the output directory (`reports/` by default), named
+Every run writes to the output directory (`~/.all-seeing-eye/reports` by default,
+so reports are in one place regardless of where you run the tool), named
 `<target>_<UTC-timestamp>.<ext>`:
 
 - **`.json`** — the full merged, machine-readable report (all plugin data +
@@ -421,6 +450,33 @@ Every run writes to the output directory (`reports/` by default), named
 - **`.md`** — a human-readable summary with an AI Insights section.
 
 Choose the format with `-f json|md|both`, or set `output.format` in the config.
+
+### Correlated identifiers (entity resolution)
+
+Before the AI step, every run correlates the plugin results into a single set of
+**identifiers** — emails, usernames, real names, phone numbers, profile URLs,
+and domains — deduped and tagged with which plugins reported each. Agreement
+across plugins raises the confidence (e.g. an email seen by both `github` and
+`hibp` is `high`). This appears as a **Correlated Identifiers** section in the
+report and, crucially, is fed to the LLM as the backbone for cross-referencing —
+so insights start from linked identities instead of raw per-plugin blobs. It
+runs even with `--no-llm`.
+
+### Auto-pivot to linked identities
+
+When the correlation links your target to an identifier of the **opposite kind**
+— an email scan turns up a username, or a username scan turns up an email — the
+tool automatically runs a **second pass** on that identifier through *its* kind's
+tools. So scanning `someone@example.com` that resolves to the handle `jdoe` will
+then run `jdoe` through the username tools (Sherlock, Maigret, GitHub, …), and
+vice-versa. Pivot findings are merged back into the report (a **Pivot →** section)
+and into the final correlation.
+
+- Controlled by the `pivot` config block (`enabled`, `min_sources`,
+  `max_targets`) — raise `min_sources` to only pivot on identifiers confirmed by
+  multiple plugins.
+- Disable for a single run with `--no-pivot`.
+- Pivoting is one level deep (pivot results don't spawn further pivots).
 
 ---
 
@@ -434,8 +490,9 @@ time you run the tool:
 - **Windows:** `C:\Users\<you>\.all-seeing-eye\plugins`
 - **macOS/Linux:** `~/.all-seeing-eye/plugins`
 
-(Or point `plugins.dir` in `config.yaml` at any extra folder.) Your file just
-needs to subclass `BasePlugin`:
+(Or point `plugins.dir` in `config.yaml` at any extra folder.) The fastest start
+is `aseye plugins new <name>`, which scaffolds a ready-to-edit file there. Your
+file just needs to subclass `BasePlugin`:
 
 ```python
 from aseye.core.plugin_base import BasePlugin
@@ -535,7 +592,8 @@ aseye/                 main package
 ├── core/
 │   ├── plugin_base.py  BasePlugin interface + RunMode
 │   ├── registry.py     discovers plugins (bundled + user folder + config dir)
-│   ├── orchestrator.py the pipeline (classify -> run -> merge -> insights -> write)
+│   ├── orchestrator.py the pipeline (classify -> run -> merge -> correlate -> insights)
+│   ├── resolve.py      entity resolution (correlate identifiers across plugins)
 │   └── report.py       merge results, render JSON/Markdown
 ├── llm/               local LLM abstraction (Ollama) + prompts
 ├── builtin_plugins/   plugins bundled with the tool (installed everywhere)

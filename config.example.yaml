@@ -51,13 +51,28 @@ plugins:
   settings: {}
 
 output:
-  # Where generated reports are written.
-  dir: reports
+  # Where generated reports are written. Defaults (this line commented) to
+  # ~/.all-seeing-eye/reports so it's the same from any directory. Set an
+  # absolute or relative path to override.
+  # dir: reports
   # Default report format: "json", "md", or "both".
   format: both
 
 concurrency:
+  # Plugins run in parallel in daemon threads. `timeout` is the per-plugin time
+  # budget; the whole run is bounded by timeout x (plugins / max_workers rounded
+  # up), and a plugin that overruns is marked "timeout" without blocking the run.
   # How many plugins to run in parallel.
   max_workers: 8
-  # Per-plugin hard timeout in seconds.
+  # Per-plugin time budget in seconds (see note above).
   timeout: 120
+
+pivot:
+  # After a run, automatically follow strongly-linked identifiers of the
+  # OPPOSITE kind (email -> username, username -> email) through that kind's
+  # tools, in a second pass. Disable per-run with `--no-pivot`.
+  enabled: true
+  # Minimum number of distinct plugins that must link the identifier to pivot.
+  min_sources: 1
+  # Cap how many pivots a single run may spawn.
+  max_targets: 3
