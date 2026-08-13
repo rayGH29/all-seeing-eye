@@ -30,7 +30,7 @@ class GravatarPlugin(BasePlugin):
     author = "all-seeing-eye"
     supported_targets = {"email"}
 
-    default_settings = {"timeout": 15}
+    default_settings = {"timeout": 15, "rate_limit": 0.0}
     deep_settings = {"timeout": 30}
 
     def run(self, target: Target, mode: RunMode, settings: Dict[str, Any]) -> Dict[str, Any]:
@@ -39,6 +39,7 @@ class GravatarPlugin(BasePlugin):
         avatar_url = _AVATAR_URL.format(hash=email_hash)
 
         headers = {"user-agent": _USER_AGENT}
+        self.throttle("gravatar", float(settings.get("rate_limit", 0.0)))
         try:
             resp = httpx.get(_PROFILE_URL.format(hash=email_hash), headers=headers, timeout=timeout,
                              follow_redirects=True)

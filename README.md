@@ -187,6 +187,8 @@ aseye > exit
 | `plugins` | List all plugins with ON/OFF status |
 | `plugins on\|off <name\|#>` | Toggle a plugin (persisted to `config.yaml`) |
 | `plugins info <name>` | Show a plugin's normal vs deep settings side by side |
+| `plugins new <name>` | Scaffold a starter plugin in your user folder |
+| `doctor` | Check readiness: plugins, external tools, keys, and the LLM |
 | `config` | Print the effective configuration |
 | `help` | Show the command list |
 | `clear` | Clear the screen |
@@ -204,12 +206,18 @@ Every action is also a normal command for scripting/automation:
 ```bash
 aseye run <target> [OPTIONS]
 aseye deep-research <target> [OPTIONS]
+aseye doctor                 # readiness: plugins, tools, keys, LLM
 aseye plugins list
-aseye config init            # write config.yaml from the template
+aseye plugins new <name>     # scaffold a starter plugin
+aseye config init            # write the global config.yaml from the template
 aseye config show            # print the effective config
 aseye --version
 aseye --help
 ```
+
+Run **`aseye doctor`** first to see which plugins are ready and which need a tool
+installed or a key set — it also checks whether your local LLM (Ollama) is
+reachable and the model is pulled.
 
 **`run` / `deep-research` options:**
 
@@ -369,8 +377,10 @@ insights step fails gracefully with a note — the plugin data is still written.
 
 ## Configuration
 
-Create an editable config with `aseye config init` (writes `config.yaml` from the
-bundled template). `config.yaml` is gitignored. Key sections:
+Create an editable config with `aseye config init`. It writes a **global**
+`config.yaml` under `~/.all-seeing-eye/`, so your settings apply from any
+directory. (A `config.yaml` in your current folder still takes precedence — handy
+for project-local overrides.) Key sections:
 
 ```yaml
 llm:
@@ -392,12 +402,14 @@ plugins:
       sites: [GitHub, Reddit]
     toutatis:
       sessionid: ""       # prefer the TOUTATIS_SESSIONID env var
+      rate_limit: 2.0     # min seconds between requests to Instagram
     hibp:
       api_key: ""         # prefer the HIBP_API_KEY env var
+      rate_limit: 1.6     # min seconds between HIBP requests
 
 output:
-  dir: reports            # where reports are written
-  format: both            # json | md | both
+  dir: ~/.all-seeing-eye/reports   # default; override with -o or here
+  format: both                     # json | md | both
 
 concurrency:
   max_workers: 8          # plugins run in parallel
@@ -406,6 +418,9 @@ concurrency:
 
 - **Secrets** (`HIBP_API_KEY`, `TOUTATIS_SESSIONID`) are best set as environment
   variables; the env var always wins over the config file.
+- **Per-source rate limiting:** HTTP-based plugins (`hibp`, `toutatis`,
+  `gravatar`) accept a `rate_limit` (seconds) that spaces out their requests so
+  you don't get throttled or flagged — raise it if you hit rate limits.
 - Use a non-default config with `aseye run <target> -c path/to/config.yaml`.
 - Toggling plugins in the interactive app writes changes back to `config.yaml`.
 
@@ -413,7 +428,8 @@ concurrency:
 
 ## Reports
 
-Every run writes to the output directory (`reports/` by default), named
+Every run writes to the output directory (`~/.all-seeing-eye/reports` by default,
+so reports are in one place regardless of where you run the tool), named
 `<target>_<UTC-timestamp>.<ext>`:
 
 - **`.json`** — the full merged, machine-readable report (all plugin data +
@@ -434,8 +450,9 @@ time you run the tool:
 - **Windows:** `C:\Users\<you>\.all-seeing-eye\plugins`
 - **macOS/Linux:** `~/.all-seeing-eye/plugins`
 
-(Or point `plugins.dir` in `config.yaml` at any extra folder.) Your file just
-needs to subclass `BasePlugin`:
+(Or point `plugins.dir` in `config.yaml` at any extra folder.) The fastest start
+is `aseye plugins new <name>`, which scaffolds a ready-to-edit file there. Your
+file just needs to subclass `BasePlugin`:
 
 ```python
 from aseye.core.plugin_base import BasePlugin

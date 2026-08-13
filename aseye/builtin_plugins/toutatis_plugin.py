@@ -33,8 +33,11 @@ class ToutatisPlugin(BasePlugin):
     description = "Instagram account OSINT via Toutatis (needs an Instagram sessionid)."
     author = "all-seeing-eye"
     supported_targets = {"username"}
+    requires_tool = "toutatis"
+    requires_key_env = "TOUTATIS_SESSIONID"
+    requires_key_setting = "sessionid"
 
-    default_settings = {"sessionid": "", "advanced_lookup": False}
+    default_settings = {"sessionid": "", "advanced_lookup": False, "rate_limit": 2.0}
     deep_settings = {"advanced_lookup": True}
 
     def run(self, target: Target, mode: RunMode, settings: Dict[str, Any]) -> Dict[str, Any]:
@@ -50,8 +53,10 @@ class ToutatisPlugin(BasePlugin):
         except ImportError as exc:  # pragma: no cover - optional dep
             raise RuntimeError("Toutatis not installed. Install it with `pip install toutatis`.") from exc
 
+        rate_limit = float(settings.get("rate_limit", 2.0))
         result: Dict[str, Any] = {"username": target.value, "mode": mode.value, "found": False}
 
+        self.throttle("instagram", rate_limit)
         info = toutatis.getInfo(target.value, session_id)
         if info.get("error"):
             if str(info["error"]).lower() == "user not found":
@@ -62,6 +67,7 @@ class ToutatisPlugin(BasePlugin):
         result.update(self._extract(info.get("user") or {}))
 
         if settings.get("advanced_lookup"):
+            self.throttle("instagram", rate_limit)
             result["advanced_lookup"] = self._advanced_lookup(toutatis, target.value)
 
         return result

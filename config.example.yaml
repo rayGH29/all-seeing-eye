@@ -51,8 +51,10 @@ plugins:
   settings: {}
 
 output:
-  # Where generated reports are written.
-  dir: reports
+  # Where generated reports are written. Defaults (this line commented) to
+  # ~/.all-seeing-eye/reports so it's the same from any directory. Set an
+  # absolute or relative path to override.
+  # dir: reports
   # Default report format: "json", "md", or "both".
   format: both
 

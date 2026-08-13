@@ -28,6 +28,8 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from typing import Any, Dict, Set
 
+from typing import Optional
+
 from aseye.models import RunMode, Target
 
 
@@ -39,6 +41,15 @@ class BasePlugin(ABC):
     version: str = "0.0.0"
     description: str = ""
     author: str = ""
+
+    # ---- requirements (used by `aseye doctor` to show readiness) --------------
+    #: External tool/module this plugin needs (console script or importable
+    #: module name), or None if it needs nothing extra.
+    requires_tool: Optional[str] = None
+    #: Environment variable holding a required key/secret, or None.
+    requires_key_env: Optional[str] = None
+    #: Config settings field the key can also be provided under, or None.
+    requires_key_setting: Optional[str] = None
 
     #: Target kinds this plugin can handle, e.g. {"username", "email"}.
     supported_targets: Set[str] = set()
@@ -72,6 +83,17 @@ class BasePlugin(ABC):
             settings.update(self.deep_settings)
         settings.update(overrides or {})
         return settings
+
+    @staticmethod
+    def throttle(source: str, min_interval: float) -> None:
+        """Politely rate-limit outbound requests to a shared source/host.
+
+        Ensures at least ``min_interval`` seconds pass between successive calls
+        for ``source`` across all threads. Call it right before each request.
+        """
+        from aseye.utils.ratelimit import throttle as _throttle
+
+        _throttle(source, min_interval)
 
     @abstractmethod
     def run(self, target: Target, mode: RunMode, settings: Dict[str, Any]) -> Dict[str, Any]:

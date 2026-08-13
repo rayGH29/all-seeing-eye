@@ -43,6 +43,7 @@ class SocialscanPlugin(BasePlugin):
     description = "Check username/email availability on major platforms via socialscan."
     author = "all-seeing-eye"
     supported_targets = {"username", "email"}
+    requires_tool = "socialscan"
 
     default_settings = {"overall_timeout": 60, "cache_tokens": False}
     deep_settings = {"overall_timeout": 90, "cache_tokens": True}

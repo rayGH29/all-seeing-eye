@@ -43,6 +43,7 @@ class SherlockPlugin(BasePlugin):
     description = "Find a username across social networks via the Sherlock CLI."
     author = "all-seeing-eye"
     supported_targets = {"username"}  # Sherlock hunts usernames, not emails.
+    requires_tool = "sherlock"
 
     # NORMAL: quicker per-site timeout, bounded overall run.
     # DEEP: longer per-site timeout, include NSFW sites, larger overall budget.

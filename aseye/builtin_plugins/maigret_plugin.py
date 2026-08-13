@@ -34,6 +34,7 @@ class MaigretPlugin(BasePlugin):
     description = "Find a username across thousands of sites via Maigret (with profile info)."
     author = "all-seeing-eye"
     supported_targets = {"username"}
+    requires_tool = "maigret"
 
     default_settings = {
         "top_sites": 300,        # scan this many top-ranked sites

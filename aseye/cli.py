@@ -10,6 +10,11 @@ Usage examples:
 
 from __future__ import annotations
 
+import importlib.util
+import os
+import re
+import shutil
+from pathlib import Path
 from typing import List, Optional
 
 import typer
@@ -17,12 +22,51 @@ from rich.panel import Panel
 from rich.table import Table
 
 from aseye import __version__
-from aseye.config import Config, init_config, load_config
+from aseye.config import (
+    GLOBAL_CONFIG_PATH,
+    USER_PLUGINS_DIR,
+    Config,
+    init_config,
+    load_config,
+)
 from aseye.core import orchestrator, registry
 from aseye.core.exceptions import AseyeError
 from aseye.models import PluginStatus, RunMode
 from aseye.utils.banner import print_banner
 from aseye.utils.logging import console, setup_logging
+
+_PLUGIN_TEMPLATE = '''\
+"""{name} plugin for all-seeing-eye."""
+
+from __future__ import annotations
+
+from typing import Any, Dict
+
+from aseye.core.plugin_base import BasePlugin
+from aseye.models import RunMode, Target
+
+
+class {class_name}(BasePlugin):
+    name = "{slug}"
+    version = "0.1.0"
+    description = "TODO: describe what this plugin does."
+    author = "you"
+    supported_targets = {{"username"}}   # or {{"email"}}, or both
+
+    # Settings per mode; deep only lists the differences.
+    default_settings = {{"limit": 10}}    # NORMAL (aseye run)
+    deep_settings = {{"limit": 100}}      # DEEP   (aseye deep-research)
+
+    # Optional: declared for `aseye doctor` readiness checks.
+    # requires_tool = "some_cli_or_module"
+    # requires_key_env = "SOME_API_KEY"
+    # requires_key_setting = "api_key"
+
+    def run(self, target: Target, mode: RunMode, settings: Dict[str, Any]) -> Dict[str, Any]:
+        # target.value = the username/email; target.kind = "username"/"email"
+        # Return any JSON-serializable dict; raise on failure.
+        return {{"target": target.value, "mode": mode.value, "limit": settings["limit"]}}
+'''
 
 app = typer.Typer(
     help="all-seeing-eye — modular local OSINT with LLM-driven insights.",
@@ -106,6 +150,7 @@ def run_target(
     only: Optional[List[str]] = None,
     use_llm: bool = True,
     output_format: Optional[str] = None,
+    show_progress: bool = True,
 ) -> orchestrator.RunOutcome:
     """Banner-free, no-exit run used by both the CLI and the interactive shell.
 
@@ -118,6 +163,7 @@ def run_target(
         only=only,
         use_llm=use_llm,
         output_format=output_format,
+        show_progress=show_progress,
     )
 
 
@@ -177,6 +223,115 @@ def deep_research(
     _execute(target, RunMode.DEEP, config_path, plugins, no_llm, output, fmt)
 
 
+def _tool_ready(tool: Optional[str]) -> Optional[bool]:
+    """True/False if a required tool is present; None if the plugin needs none."""
+    if not tool:
+        return None
+    if shutil.which(tool):
+        return True
+    try:
+        return importlib.util.find_spec(tool) is not None
+    except (ImportError, ValueError):
+        return False
+
+
+def _key_ready(plugin, config: Config) -> Optional[bool]:
+    """True/False if a required key is available; None if the plugin needs none."""
+    env = getattr(plugin, "requires_key_env", None)
+    setting = getattr(plugin, "requires_key_setting", None)
+    if not env and not setting:
+        return None
+    value = os.environ.get(env) if env else None
+    if not value and setting:
+        value = (config.plugins.settings.get(plugin.name) or {}).get(setting)
+    return bool(value)
+
+
+def _status_cell(state: Optional[bool], ok_text: str, bad_text: str) -> str:
+    if state is None:
+        return "[dim]—[/dim]"
+    return f"[green]{ok_text}[/green]" if state else f"[red]{bad_text}[/red]"
+
+
+@app.command()
+def doctor(
+    config_path: Optional[str] = typer.Option(None, "--config", "-c", help="Path to config.yaml."),
+) -> None:
+    """Check environment readiness: config, plugins, tools, keys, and the LLM."""
+    render_doctor(load_config(config_path))
+
+
+def render_doctor(config: Config) -> None:
+    """Print the environment/plugin/LLM readiness report (shared by CLI + shell)."""
+    import platform
+
+    source = config.source_path or f"none (defaults; run `aseye config init` -> {GLOBAL_CONFIG_PATH})"
+    console.print(
+        Panel.fit(
+            f"Python {platform.python_version()}  ·  all-seeing-eye {__version__}\n"
+            f"Config: {source}\n"
+            f"Reports dir: {config.output.dir}\n"
+            f"User plugins: {USER_PLUGINS_DIR}",
+            title="Environment",
+            border_style="blue",
+        )
+    )
+
+    discovered = registry.discover(config.plugins, apply_filters=False)
+    enabled = {p.name for p in registry.discover(config.plugins)}
+
+    table = Table(title="Plugin readiness")
+    table.add_column("Plugin", style="cyan")
+    table.add_column("Enabled")
+    table.add_column("Tool")
+    table.add_column("Key")
+    table.add_column("Ready")
+    for plugin in sorted(discovered, key=lambda p: p.name):
+        on = plugin.name in enabled
+        tool = _tool_ready(plugin.requires_tool)
+        key = _key_ready(plugin, config)
+        if not on:
+            ready = "[dim]off[/dim]"
+        elif tool is not False and key is not False:
+            ready = "[green]ready[/green]"
+        else:
+            ready = "[red]blocked[/red]"
+        table.add_row(
+            plugin.name,
+            "[green]on[/green]" if on else "[dim]off[/dim]",
+            _status_cell(tool, "ok", "missing"),
+            _status_cell(key, "set", "missing"),
+            ready,
+        )
+    console.print(table)
+
+    _report_llm_status(config)
+
+
+def _report_llm_status(config: Config) -> None:
+    llm = config.llm
+    if not llm.enabled:
+        console.print("LLM: [dim]disabled in config (runs use --no-llm behavior)[/dim]")
+        return
+    if llm.provider.lower() != "ollama":
+        console.print(f"LLM: provider '{llm.provider}', model '{llm.model}'")
+        return
+
+    import httpx
+
+    try:
+        resp = httpx.get(f"{llm.host.rstrip('/')}/api/tags", timeout=3.0)
+        models = [m.get("name", "") for m in resp.json().get("models", [])]
+    except httpx.HTTPError:
+        console.print(
+            f"LLM (ollama @ {llm.host}): [red]unreachable[/red] — start it with `ollama serve`."
+        )
+        return
+    pulled = llm.model in models or any(m.split(":")[0] == llm.model for m in models)
+    state = "[green]pulled[/green]" if pulled else f"[red]not pulled[/red] — run `ollama pull {llm.model}`"
+    console.print(f"LLM (ollama @ {llm.host}): [green]reachable[/green]; model '{llm.model}' {state}")
+
+
 @plugins_app.command("list")
 def plugins_list(
     config_path: Optional[str] = typer.Option(None, "--config", "-c", help="Path to config.yaml."),
@@ -197,6 +352,43 @@ def plugins_list(
     console.print(table)
     if not discovered:
         console.print("[yellow]No plugins found.[/yellow]")
+
+
+@plugins_app.command("new")
+def plugins_new(
+    name: str = typer.Argument(..., help="Name for the new plugin, e.g. 'my_source'."),
+    force: bool = typer.Option(False, "--force", help="Overwrite if the file already exists."),
+) -> None:
+    """Scaffold a starter plugin in your user plugins folder."""
+    try:
+        dest, slug = scaffold_plugin(name, force=force)
+    except AseyeError as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise typer.Exit(code=1)
+    console.print(f"[green]Created[/green] {dest}")
+    console.print(f"Edit it, then run [cyan]aseye run <target> --plugins {slug}[/cyan].")
+
+
+def scaffold_plugin(name: str, *, force: bool = False):
+    """Write a starter plugin to the user plugins folder. Returns (path, slug).
+
+    Raises :class:`AseyeError` on a bad name or an existing file.
+    """
+    slug = re.sub(r"[^a-z0-9]+", "_", name.lower()).strip("_")
+    if not slug:
+        raise AseyeError("Please provide a name with letters or digits.")
+    class_name = "".join(part.capitalize() for part in slug.split("_")) + "Plugin"
+
+    dest_dir = Path(USER_PLUGINS_DIR).expanduser()
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    dest = dest_dir / f"{slug}_plugin.py"
+    if dest.exists() and not force:
+        raise AseyeError(f"{dest} already exists (use --force to overwrite).")
+
+    dest.write_text(
+        _PLUGIN_TEMPLATE.format(name=slug, class_name=class_name, slug=slug), encoding="utf-8"
+    )
+    return dest, slug
 
 
 @config_app.command("init")

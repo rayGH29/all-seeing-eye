@@ -5,14 +5,14 @@ from __future__ import annotations
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import List, Optional, Sequence
+from typing import Callable, List, Optional, Sequence
 
 from aseye.config import Config
 from aseye.core import registry, report as report_mod
 from aseye.core.plugin_base import BasePlugin
 from aseye.llm import factory as llm_factory
 from aseye.models import PluginResult, PluginStatus, Report, RunMode, Target
-from aseye.utils.logging import get_logger
+from aseye.utils.logging import console, get_logger
 from aseye.utils.validators import classify_target
 
 log = get_logger(__name__)
@@ -84,6 +84,7 @@ def run(
     only: Optional[Sequence[str]] = None,
     use_llm: bool = True,
     output_format: Optional[str] = None,
+    show_progress: bool = False,
 ) -> RunOutcome:
     """Run the full OSINT pipeline for ``target_value`` and persist the report."""
     target = classify_target(target_value)
@@ -93,7 +94,7 @@ def run(
     to_run = select_plugins(discovered, target, only)
     log.info("Running %d plugin(s) in %s mode.", len(to_run), mode.value)
 
-    results = _run_plugins_concurrently(to_run, target, mode, config)
+    results = _run_with_progress(to_run, target, mode, config, show_progress)
 
     merged = report_mod.build_report(target, mode, results)
 
@@ -107,11 +108,47 @@ def run(
     return RunOutcome(merged, written)
 
 
+def _run_with_progress(
+    plugins: List[BasePlugin],
+    target: Target,
+    mode: RunMode,
+    config: Config,
+    show_progress: bool,
+) -> List[PluginResult]:
+    """Run the plugins, optionally showing a live progress bar."""
+    if not (show_progress and plugins and console.is_terminal):
+        return _run_plugins_concurrently(plugins, target, mode, config)
+
+    from rich.progress import (
+        BarColumn,
+        MofNCompleteColumn,
+        Progress,
+        SpinnerColumn,
+        TextColumn,
+        TimeElapsedColumn,
+    )
+
+    with Progress(
+        SpinnerColumn(),
+        TextColumn("[progress.description]{task.description}"),
+        BarColumn(),
+        MofNCompleteColumn(),
+        TimeElapsedColumn(),
+        console=console,
+        transient=True,
+    ) as progress:
+        task = progress.add_task(f"Running plugins ({mode.value})", total=len(plugins))
+        return _run_plugins_concurrently(
+            plugins, target, mode, config, on_complete=lambda: progress.advance(task)
+        )
+
+
 def _run_plugins_concurrently(
     plugins: List[BasePlugin],
     target: Target,
     mode: RunMode,
     config: Config,
+    on_complete: Optional[Callable[[], None]] = None,
 ) -> List[PluginResult]:
     """Run plugins in a thread pool with a per-plugin timeout."""
     if not plugins:
@@ -120,6 +157,10 @@ def _run_plugins_concurrently(
     timeout = config.concurrency.timeout
     max_workers = max(1, config.concurrency.max_workers)
     results: List[PluginResult] = []
+
+    def _mark_done() -> None:
+        if on_complete is not None:
+            on_complete()
 
     with ThreadPoolExecutor(max_workers=max_workers) as pool:
         future_to_plugin = {
@@ -142,6 +183,7 @@ def _run_plugins_concurrently(
                 break
             for fut in done:
                 results.append(fut.result())
+                _mark_done()
 
         for fut in pending:
             plugin = future_to_plugin[fut]
@@ -156,6 +198,7 @@ def _run_plugins_concurrently(
                     finished_at=datetime.now(timezone.utc),
                 )
             )
+            _mark_done()
 
     # Preserve the input plugin order for stable, readable reports.
     order = {p.name: i for i, p in enumerate(plugins)}

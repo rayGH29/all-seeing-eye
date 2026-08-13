@@ -34,6 +34,8 @@ _HELP = [
     ("plugins", "List plugins with ON/OFF status"),
     ("plugins on|off <name>", "Enable/disable a plugin (persisted to config.yaml)"),
     ("plugins info <name>", "Show a plugin's normal vs deep settings"),
+    ("plugins new <name>", "Scaffold a starter plugin in your user folder"),
+    ("doctor", "Check readiness: plugins, tools, keys, and the LLM"),
     ("config", "Show the effective configuration"),
     ("help", "Show this help"),
     ("clear", "Clear the screen"),
@@ -73,6 +75,10 @@ class AseyeShell:
             self._cmd_run(args, RunMode.DEEP)
         elif cmd == "plugins":
             self._cmd_plugins(args)
+        elif cmd == "doctor":
+            from aseye.cli import render_doctor
+
+            render_doctor(self.config)
         elif cmd == "config":
             self._cmd_config()
         else:
@@ -114,6 +120,18 @@ class AseyeShell:
             self._plugins_list()
             return
         sub = args[0].lower()
+        if sub == "new":
+            if len(args) < 2:
+                console.print("[red]usage:[/red] plugins new <name>")
+                return
+            from aseye.cli import scaffold_plugin
+
+            try:
+                dest, slug = scaffold_plugin(args[1])
+                console.print(f"[green]Created[/green] {dest}  (name: {slug})")
+            except AseyeError as exc:
+                console.print(f"[red]{exc}[/red]")
+            return
         if sub in ("on", "off", "info"):
             if len(args) < 2:
                 console.print(f"[red]usage:[/red] plugins {sub} <name>")
@@ -285,7 +303,14 @@ def run_shell(*, verbose: bool = False) -> None:
             "run": None,
             "deep-research": None,
             "deep": None,
-            "plugins": {"list": None, "on": plugin_names, "off": plugin_names, "info": plugin_names},
+            "plugins": {
+                "list": None,
+                "on": plugin_names,
+                "off": plugin_names,
+                "info": plugin_names,
+                "new": None,
+            },
+            "doctor": None,
             "config": None,
             "help": None,
             "clear": None,
